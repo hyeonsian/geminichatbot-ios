@@ -5,21 +5,26 @@ struct DictionaryView: View {
     @EnvironmentObject private var chatStore: ChatStore
     @Environment(\.dismiss) private var dismiss
     @State private var categoryEditEntry: DictionaryEntry?
+    @State private var navigationPath: [DictionaryRoute] = []
+    @State private var showCategoryManageDialog = false
+    @State private var showRenameCategoryAlert = false
+    @State private var renameCategoryName = ""
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack {
                 Color(uiColor: .systemGroupedBackground)
                     .ignoresSafeArea()
 
-                if chatStore.filteredDictionaryEntries().isEmpty {
+                if filteredEntries.isEmpty {
                     emptyState
                 } else {
                     List {
-                        ForEach(chatStore.filteredDictionaryEntries()) { entry in
+                        ForEach(Array(filteredEntries.enumerated()), id: \.element.id) { index, entry in
                             DictionaryEntryCard(
                                 entry: entry,
-                                categoryNames: chatStore.categoryBadges(for: entry)
+                                categoryNames: chatStore.categoryBadges(for: entry),
+                                leadingTopCaption: index == 0 ? firstCardTopCaption : nil
                             )
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowSeparator(.hidden)
@@ -50,7 +55,7 @@ struct DictionaryView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { dismiss() }) {
+                    Button(action: handleBackButtonTap) {
                         Image(systemName: "chevron.left")
                             .foregroundStyle(Color.blue)
                     }
@@ -68,16 +73,20 @@ struct DictionaryView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        DictionaryCategoriesView()
-                            .environmentObject(chatStore)
-                    } label: {
+                    Button(action: handleTopRightCategoryButtonTap) {
                         Image(systemName: "square.grid.2x2")
                             .foregroundStyle(Color.blue)
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: DictionaryRoute.self) { route in
+                switch route {
+                case .categories:
+                    DictionaryCategoriesView()
+                        .environmentObject(chatStore)
+                }
+            }
         }
         .sheet(item: $categoryEditEntry) { entry in
             DictionaryEntryCategoryEditorSheet(
@@ -92,6 +101,38 @@ struct DictionaryView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .confirmationDialog(
+            "카테고리 관리",
+            isPresented: $showCategoryManageDialog,
+            titleVisibility: .visible
+        ) {
+            if selectedManagedCategory != nil {
+                Button("카테고리 이름 변경") {
+                    renameCategoryName = selectedManagedCategory?.name ?? ""
+                    showRenameCategoryAlert = true
+                }
+                Button("카테고리 삭제", role: .destructive) {
+                    if let category = selectedManagedCategory {
+                        chatStore.deleteDictionaryCategory(category.id)
+                    }
+                }
+                Button("카테고리 선택 페이지 열기") {
+                    openCategoriesPage()
+                }
+            }
+            Button("취소", role: .cancel) {}
+        }
+        .alert("카테고리 이름 변경", isPresented: $showRenameCategoryAlert) {
+            TextField("카테고리 이름", text: $renameCategoryName)
+            Button("저장") {
+                if let category = selectedManagedCategory {
+                    _ = chatStore.renameDictionaryCategory(id: category.id, to: renameCategoryName)
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("새 카테고리 이름을 입력하세요.")
         }
     }
 
@@ -114,6 +155,47 @@ struct DictionaryView: View {
             return "이 카테고리에 저장된 항목이 없습니다."
         }
     }
+
+    private var filteredEntries: [DictionaryEntry] {
+        chatStore.filteredDictionaryEntries()
+    }
+
+    private var selectedManagedCategory: DictionaryCategory? {
+        guard case .category(let id) = chatStore.selectedDictionaryCategoryFilter else { return nil }
+        return chatStore.category(for: id)
+    }
+
+    private var firstCardTopCaption: String? {
+        guard case .category = chatStore.selectedDictionaryCategoryFilter else { return nil }
+        let count = filteredEntries.count
+        return count == 1 ? "1 item" : "\(count) items"
+    }
+
+    private func handleBackButtonTap() {
+        switch chatStore.selectedDictionaryCategoryFilter {
+        case .category:
+            openCategoriesPage()
+        default:
+            dismiss()
+        }
+    }
+
+    private func handleTopRightCategoryButtonTap() {
+        if selectedManagedCategory != nil {
+            showCategoryManageDialog = true
+        } else {
+            openCategoriesPage()
+        }
+    }
+
+    private func openCategoriesPage() {
+        guard navigationPath.last != .categories else { return }
+        navigationPath.append(.categories)
+    }
+}
+
+private enum DictionaryRoute: Hashable {
+    case categories
 }
 
 private struct DictionaryEntryCategoryEditorSheet: View {
@@ -291,9 +373,16 @@ private struct DictionaryEntryCategoryEditorSheet: View {
 private struct DictionaryEntryCard: View {
     let entry: DictionaryEntry
     let categoryNames: [String]
+    var leadingTopCaption: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let leadingTopCaption, !leadingTopCaption.isEmpty {
+                Text(leadingTopCaption)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
             HStack(alignment: .top) {
                 Text(entry.kind.label)
                     .font(.system(size: 11, weight: .semibold))
@@ -394,11 +483,19 @@ private struct DictionaryCategoriesView: View {
     var body: some View {
         List {
             Section {
-                categoryRow(title: "전체", isSelected: isSelected(.all)) {
+                categoryRow(
+                    title: "전체",
+                    count: chatStore.dictionaryEntryCount(for: .all),
+                    isSelected: isSelected(.all)
+                ) {
                     chatStore.setDictionaryCategoryFilter(.all)
                     dismiss()
                 }
-                categoryRow(title: "미분류", isSelected: isSelected(.uncategorized)) {
+                categoryRow(
+                    title: "미분류",
+                    count: chatStore.dictionaryEntryCount(for: .uncategorized),
+                    isSelected: isSelected(.uncategorized)
+                ) {
                     chatStore.setDictionaryCategoryFilter(.uncategorized)
                     dismiss()
                 }
@@ -409,6 +506,7 @@ private struct DictionaryCategoriesView: View {
                     ForEach(chatStore.dictionaryCategories) { category in
                         categoryRow(
                             title: category.name,
+                            count: chatStore.dictionaryEntryCount(for: .category(category.id)),
                             isSelected: isSelected(.category(category.id))
                         ) {
                             chatStore.setDictionaryCategoryFilter(.category(category.id))
@@ -447,12 +545,15 @@ private struct DictionaryCategoriesView: View {
         chatStore.selectedDictionaryCategoryFilter == filter
     }
 
-    private func categoryRow(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func categoryRow(title: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
                 Text(title)
                     .foregroundStyle(.primary)
                 Spacer()
+                Text("\(count)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
                 if isSelected {
                     Image(systemName: "checkmark")
                         .foregroundStyle(Color.blue)

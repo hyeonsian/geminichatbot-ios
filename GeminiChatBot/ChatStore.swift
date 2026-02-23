@@ -76,6 +76,10 @@ final class ChatStore: ObservableObject {
         dictionaryCategories.first(where: { $0.id == id })?.name
     }
 
+    func category(for id: UUID) -> DictionaryCategory? {
+        dictionaryCategories.first(where: { $0.id == id })
+    }
+
     func categoryBadges(for entry: DictionaryEntry) -> [String] {
         entry.categoryIDs.compactMap(categoryName(for:))
     }
@@ -90,6 +94,39 @@ final class ChatStore: ObservableObject {
         dictionaryCategories.append(category)
         dictionaryCategories.sort { $0.createdAt < $1.createdAt }
         return category
+    }
+
+    func renameDictionaryCategory(id: UUID, to rawName: String) -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        guard let index = dictionaryCategories.firstIndex(where: { $0.id == id }) else { return false }
+        guard !dictionaryCategories.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            return false
+        }
+        let current = dictionaryCategories[index]
+        dictionaryCategories[index] = DictionaryCategory(id: current.id, name: name, createdAt: current.createdAt)
+        return true
+    }
+
+    func deleteDictionaryCategory(_ id: UUID) {
+        dictionaryCategories.removeAll { $0.id == id }
+        dictionaryEntries = dictionaryEntries.map { entry in
+            let nextIDs = entry.categoryIDs.filter { $0 != id }
+            guard nextIDs != entry.categoryIDs else { return entry }
+            return DictionaryEntry(
+                id: entry.id,
+                kind: entry.kind,
+                text: entry.text,
+                originalText: entry.originalText,
+                tone: entry.tone,
+                nuance: entry.nuance,
+                createdAt: entry.createdAt,
+                categoryIDs: nextIDs
+            )
+        }
+        if case .category(let selectedID) = selectedDictionaryCategoryFilter, selectedID == id {
+            selectedDictionaryCategoryFilter = .all
+        }
     }
 
     func setCategories(_ categoryIDs: [UUID], for entryID: UUID) {
@@ -125,6 +162,17 @@ final class ChatStore: ObservableObject {
             return "미분류"
         case .category(let id):
             return categoryName(for: id)
+        }
+    }
+
+    func dictionaryEntryCount(for filter: DictionaryCategoryFilter) -> Int {
+        switch filter {
+        case .all:
+            return dictionaryEntries.count
+        case .uncategorized:
+            return dictionaryEntries.filter { $0.categoryIDs.isEmpty }.count
+        case .category(let id):
+            return dictionaryEntries.filter { $0.categoryIDs.contains(id) }.count
         }
     }
 
