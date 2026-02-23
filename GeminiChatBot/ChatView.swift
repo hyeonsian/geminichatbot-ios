@@ -549,7 +549,7 @@ private struct UserMessageFeedbackCard: View {
                !improved.isEmpty {
                 sectionLabel("IMPROVED EXPRESSION")
                 Text(improved)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(.primary)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -781,20 +781,18 @@ private struct UserMessageFeedbackCard: View {
 
     private func feedbackPointRow(_ point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            (
                 Text(point.part)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.red)
-                Text("→")
+                    .foregroundColor(.red)
+                + Text(" → ")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(feedbackFixPreview(for: point))
+                    .foregroundColor(.secondary)
+                + Text(feedbackFixPreview(for: point))
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.green)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(1)
-            }
+                    .foregroundColor(.green)
+            )
+            .fixedSize(horizontal: false, vertical: true)
             if let issue = point.issue, !issue.isEmpty {
                 Text(issue)
                     .font(.system(size: 13))
