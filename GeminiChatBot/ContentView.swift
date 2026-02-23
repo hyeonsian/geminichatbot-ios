@@ -1,21 +1,11 @@
-//
-//  ContentView.swift
-//  GeminiChatBot
-//
-//  Created by ASH on 2/23/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var chatStore = ChatStore()
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        ConversationListView()
+            .environmentObject(chatStore)
     }
 }
 
