@@ -11,13 +11,15 @@ struct MessageBubbleView: View {
     var translationError: String? = nil
     var isTranslationLoading: Bool = false
     var onTapTranslate: (() -> Void)? = nil
+    @State private var aiPrimaryTextWidth: CGFloat = 0
+
+    private let bubbleContentMaxWidth: CGFloat = 262
 
     var body: some View {
         HStack {
             if message.role == .ai {
                 HStack(alignment: .center, spacing: 6) {
                     bubble
-                        .frame(maxWidth: 290, alignment: .leading)
                     if let onTapTranslate {
                         translateButton(action: onTapTranslate)
                     }
@@ -73,12 +75,14 @@ struct MessageBubbleView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: translationContentWidth, alignment: .leading)
             .padding(.top, 2)
             .transition(.opacity)
         } else if let translationError, !translationError.isEmpty {
             Text("번역 오류")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.red)
+                .frame(maxWidth: translationContentWidth, alignment: .leading)
                 .padding(.top, 2)
                 .transition(.opacity.combined(with: .move(edge: .top)))
         } else if let translatedText, !translatedText.isEmpty {
@@ -88,8 +92,10 @@ struct MessageBubbleView: View {
                 Text(translatedText)
                     .font(.system(size: 15))
                     .foregroundStyle(.primary)
+                    .frame(maxWidth: translationContentWidth, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: translationContentWidth, alignment: .leading)
             .padding(.top, 2)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
@@ -118,6 +124,8 @@ struct MessageBubbleView: View {
             )
         }
         .buttonStyle(.plain)
+        .padding(.leading, 2)
+        .padding(.top, 2)
     }
 
     private var translateButtonTint: Color {
@@ -126,19 +134,49 @@ struct MessageBubbleView: View {
         return .blue
     }
 
+    private var translationContentWidth: CGFloat {
+        let measured = max(aiPrimaryTextWidth, 0)
+        if measured > 0 {
+            return min(measured, bubbleContentMaxWidth)
+        }
+        return bubbleContentMaxWidth
+    }
+
     @ViewBuilder
     private var messageTextView: some View {
         if let attributed = highlightedAttributedString(for: message.text, query: highlightQuery, isUserBubble: message.role == .user) {
             Text(attributed)
                 .font(.system(size: 18))
                 .multilineTextAlignment(message.role == .ai ? .leading : .trailing)
+                .frame(maxWidth: bubbleContentMaxWidth, alignment: message.role == .ai ? .leading : .trailing)
                 .fixedSize(horizontal: false, vertical: true)
+                .background(primaryTextWidthReader)
         } else {
             Text(message.text)
                 .font(.system(size: 18))
                 .foregroundStyle(message.role == .ai ? Color.primary : Color.white)
                 .multilineTextAlignment(message.role == .ai ? .leading : .trailing)
+                .frame(maxWidth: bubbleContentMaxWidth, alignment: message.role == .ai ? .leading : .trailing)
                 .fixedSize(horizontal: false, vertical: true)
+                .background(primaryTextWidthReader)
+        }
+    }
+
+    @ViewBuilder
+    private var primaryTextWidthReader: some View {
+        if message.role == .ai {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        let width = proxy.size.width
+                        if width > 0 { aiPrimaryTextWidth = width }
+                    }
+                    .onChange(of: proxy.size.width) { width in
+                        if width > 0 { aiPrimaryTextWidth = width }
+                    }
+            }
+        } else {
+            Color.clear
         }
     }
 
