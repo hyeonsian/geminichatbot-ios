@@ -66,17 +66,15 @@ struct MessageBubbleView: View {
     private var footerRow: some View {
         if message.role == .ai {
             HStack(alignment: .center, spacing: 6) {
-                Spacer(minLength: 0)
                 timeText
+                Spacer(minLength: 6)
                 if hasAIActionButtons {
                     aiActionButtons
                 }
             }
+            .frame(width: aiFooterRowWidth, alignment: .leading)
         } else {
-            HStack {
-                Spacer(minLength: 0)
-                timeText
-            }
+            timeText
         }
     }
 
@@ -198,6 +196,15 @@ struct MessageBubbleView: View {
             return min(measured, bubbleContentMaxWidth)
         }
         return bubbleContentMaxWidth
+    }
+
+    private var aiFooterRowWidth: CGFloat {
+        let measured = max(aiPrimaryTextWidth, 0)
+        let minimumForIcons: CGFloat = hasAIActionButtons ? 92 : 0
+        if measured > 0 {
+            return min(max(measured, minimumForIcons), bubbleContentMaxWidth)
+        }
+        return hasAIActionButtons ? 92 : bubbleContentMaxWidth
     }
 
     @ViewBuilder
