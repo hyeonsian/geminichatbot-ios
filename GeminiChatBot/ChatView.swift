@@ -302,10 +302,14 @@ struct ChatView: View {
 
         switch aiTranslationStates[message.id] ?? .idle {
         case .shown(let text):
-            aiTranslationStates[message.id] = .hidden(text)
+            withAnimation(.easeInOut(duration: 0.22)) {
+                aiTranslationStates[message.id] = .hidden(text)
+            }
             return
         case .hidden(let text):
-            aiTranslationStates[message.id] = .shown(text)
+            withAnimation(.easeInOut(duration: 0.22)) {
+                aiTranslationStates[message.id] = .shown(text)
+            }
             return
         case .loading:
             return
@@ -321,11 +325,15 @@ struct ChatView: View {
             do {
                 let translation = try await BackendAPIClient.shared.translate(text: message.text, targetLang: "Korean")
                 await MainActor.run {
-                    aiTranslationStates[message.id] = .shown(translation)
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        aiTranslationStates[message.id] = .shown(translation)
+                    }
                 }
             } catch {
                 await MainActor.run {
-                    aiTranslationStates[message.id] = .failed(error.localizedDescription)
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        aiTranslationStates[message.id] = .failed(error.localizedDescription)
+                    }
                 }
             }
         }

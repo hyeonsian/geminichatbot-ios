@@ -15,10 +15,12 @@ struct MessageBubbleView: View {
     var body: some View {
         HStack {
             if message.role == .ai {
-                bubble
-                    .frame(maxWidth: 290, alignment: .leading)
-                if let onTapTranslate {
-                    translateButton(action: onTapTranslate)
+                HStack(alignment: .center, spacing: 6) {
+                    bubble
+                        .frame(maxWidth: 290, alignment: .leading)
+                    if let onTapTranslate {
+                        translateButton(action: onTapTranslate)
+                    }
                 }
                 Spacer(minLength: 34)
             } else {
@@ -72,11 +74,13 @@ struct MessageBubbleView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 2)
+            .transition(.opacity)
         } else if let translationError, !translationError.isEmpty {
             Text("번역 오류")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.red)
                 .padding(.top, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
         } else if let translatedText, !translatedText.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Divider()
@@ -87,6 +91,7 @@ struct MessageBubbleView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 2)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
 
@@ -113,8 +118,6 @@ struct MessageBubbleView: View {
             )
         }
         .buttonStyle(.plain)
-        .padding(.leading, 4)
-        .padding(.top, 6)
     }
 
     private var translateButtonTint: Color {
