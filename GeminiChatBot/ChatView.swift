@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var feedbackStates: [UUID: UserMessageFeedbackState] = [:]
     @State private var nativeAlternativesStates: [UUID: NativeAlternativesLoadState] = [:]
     @State private var nativeAlternativesSheetMessage: ChatMessage?
+    @State private var aiTranslationStates: [UUID: AIMessageTranslationState] = [:]
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var selectedSearchResultIndex = 0
@@ -276,7 +277,11 @@ struct ChatView: View {
                     isSelected: false,
                     highlightQuery: searchQuery,
                     isSearchMatched: matched,
-                    isActiveSearchMatch: activeMatched
+                    isActiveSearchMatch: activeMatched,
+                    translatedText: translationVisibleText(for: message),
+                    translationError: translationErrorText(for: message),
+                    isTranslationLoading: isTranslationLoading(for: message),
+                    onTapTranslate: message.role == .ai ? { toggleAITranslation(for: message) } : nil
                 )
             }
         }
@@ -290,6 +295,62 @@ struct ChatView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             isSearchVisible.toggle()
         }
+    }
+
+    private func toggleAITranslation(for message: ChatMessage) {
+        guard message.role == .ai else { return }
+
+        switch aiTranslationStates[message.id] ?? .idle {
+        case .shown(let text):
+            aiTranslationStates[message.id] = .hidden(text)
+            return
+        case .hidden(let text):
+            aiTranslationStates[message.id] = .shown(text)
+            return
+        case .loading:
+            return
+        case .failed:
+            break
+        case .idle:
+            break
+        }
+
+        aiTranslationStates[message.id] = .loading
+
+        Task {
+            do {
+                let translation = try await BackendAPIClient.shared.translate(text: message.text, targetLang: "Korean")
+                await MainActor.run {
+                    aiTranslationStates[message.id] = .shown(translation)
+                }
+            } catch {
+                await MainActor.run {
+                    aiTranslationStates[message.id] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func isTranslationLoading(for message: ChatMessage) -> Bool {
+        guard message.role == .ai else { return false }
+        if case .loading = aiTranslationStates[message.id] { return true }
+        return false
+    }
+
+    private func translationVisibleText(for message: ChatMessage) -> String? {
+        guard message.role == .ai else { return nil }
+        if case let .shown(text) = aiTranslationStates[message.id] {
+            return text
+        }
+        return nil
+    }
+
+    private func translationErrorText(for message: ChatMessage) -> String? {
+        guard message.role == .ai else { return nil }
+        if case let .failed(text) = aiTranslationStates[message.id] {
+            return text
+        }
+        return nil
     }
 
     private func handleMessageTap(_ message: ChatMessage) {
@@ -446,6 +507,14 @@ private enum NativeAlternativesLoadState {
     case idle
     case loading
     case loaded([NativeAlternativeItem])
+    case failed(String)
+}
+
+private enum AIMessageTranslationState {
+    case idle
+    case loading
+    case shown(String)
+    case hidden(String)
     case failed(String)
 }
 

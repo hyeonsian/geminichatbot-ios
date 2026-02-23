@@ -7,12 +7,19 @@ struct MessageBubbleView: View {
     var highlightQuery: String = ""
     var isSearchMatched: Bool = false
     var isActiveSearchMatch: Bool = false
+    var translatedText: String? = nil
+    var translationError: String? = nil
+    var isTranslationLoading: Bool = false
+    var onTapTranslate: (() -> Void)? = nil
 
     var body: some View {
         HStack {
             if message.role == .ai {
                 bubble
                     .frame(maxWidth: 290, alignment: .leading)
+                if let onTapTranslate {
+                    translateButton(action: onTapTranslate)
+                }
                 Spacer(minLength: 34)
             } else {
                 Spacer(minLength: 34)
@@ -25,6 +32,10 @@ struct MessageBubbleView: View {
     private var bubble: some View {
         VStack(alignment: message.role == .ai ? .leading : .trailing, spacing: 6) {
             messageTextView
+
+            if message.role == .ai {
+                aiTranslationContent
+            }
 
             Text(message.timeText)
                 .font(.system(size: 11))
@@ -48,6 +59,68 @@ struct MessageBubbleView: View {
                     .stroke(Color.orange.opacity(0.28), lineWidth: 1)
             }
         }
+    }
+
+    @ViewBuilder
+    private var aiTranslationContent: some View {
+        if isTranslationLoading {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("번역 중...")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+        } else if let translationError, !translationError.isEmpty {
+            Text("번역 오류")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.red)
+                .padding(.top, 2)
+        } else if let translatedText, !translatedText.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Divider()
+                    .overlay(Color.gray.opacity(0.25))
+                Text(translatedText)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func translateButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if isTranslationLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "globe")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+            }
+            .foregroundStyle(translateButtonTint)
+            .frame(width: 24, height: 24)
+            .background(
+                Circle()
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+            .overlay(
+                Circle()
+                    .stroke(translateButtonTint.opacity(0.18), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 4)
+        .padding(.top, 6)
+    }
+
+    private var translateButtonTint: Color {
+        if translationError != nil { return .red }
+        if translatedText != nil { return .green }
+        return .blue
     }
 
     @ViewBuilder
