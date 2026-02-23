@@ -34,6 +34,7 @@ struct ChatView: View {
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var selectedSearchResultIndex = 0
+    @State private var showProfileEditor = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -97,6 +98,10 @@ struct ChatView: View {
         .toolbar(.hidden, for: .navigationBar)
         .onDisappear {
             stopAISpeechPlayback()
+        }
+        .navigationDestination(isPresented: $showProfileEditor) {
+            AIProfileEditorView(conversationID: conversation.id)
+                .environmentObject(chatStore)
         }
         .sheet(item: $nativeAlternativesSheetMessage) { message in
             NativeAlternativesSheet(
@@ -208,15 +213,19 @@ struct ChatView: View {
 
             Spacer()
 
-            VStack(spacing: 2) {
-                Text(conversation.name)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.primary)
+            Button(action: { showProfileEditor = true }) {
+                VStack(spacing: 2) {
+                    Text(currentAIProfile.name)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.primary)
 
-                Text("Gemini 3 Flash")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    Text("Gemini 3 Flash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
@@ -233,6 +242,10 @@ struct ChatView: View {
         .padding(.vertical, 10)
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var currentAIProfile: AIProfileSettings {
+        chatStore.aiProfile(for: conversation)
     }
 
     private var inputBar: some View {
@@ -388,7 +401,7 @@ struct ChatView: View {
             do {
                 let audioData = try await BackendAPIClient.shared.ttsAudio(
                     text: message.text,
-                    voiceName: nil,
+                    voiceName: currentAIProfile.voicePreset,
                     style: "Read this naturally like a friendly native English speaker in a casual chat."
                 )
                 await MainActor.run {

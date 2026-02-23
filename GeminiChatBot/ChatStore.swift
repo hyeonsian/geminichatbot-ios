@@ -8,6 +8,7 @@ final class ChatStore: ObservableObject {
         let messagesByConversationID: [UUID: [ChatMessage]]
         let dictionaryEntries: [DictionaryEntry]
         let dictionaryCategories: [DictionaryCategory]
+        let aiProfilesByConversationID: [UUID: AIProfileSettings]?
     }
 
     enum CategoryNameValidationError: LocalizedError {
@@ -31,6 +32,7 @@ final class ChatStore: ObservableObject {
     @Published private var messagesByConversationID: [UUID: [ChatMessage]] = [:]
     @Published private(set) var dictionaryEntries: [DictionaryEntry] = []
     @Published private(set) var dictionaryCategories: [DictionaryCategory] = []
+    @Published private(set) var aiProfilesByConversationID: [UUID: AIProfileSettings] = [:]
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
 
     init(conversations: [Conversation] = SampleData.conversations, userDefaults: UserDefaults = .standard) {
@@ -38,8 +40,10 @@ final class ChatStore: ObservableObject {
         self.conversations = conversations
         for conversation in conversations {
             messagesByConversationID[conversation.id] = SampleData.initialMessages(for: conversation.name)
+            aiProfilesByConversationID[conversation.id] = AIProfileSettings(name: conversation.name)
         }
         loadPersistedState()
+        ensureAIProfilesForConversations()
     }
 
     func messages(for conversation: Conversation) -> [ChatMessage] {
@@ -195,6 +199,44 @@ final class ChatStore: ObservableObject {
         selectedDictionaryCategoryFilter = filter
     }
 
+    func aiProfile(for conversation: Conversation) -> AIProfileSettings {
+        aiProfile(for: conversation.id, fallbackName: conversation.name)
+    }
+
+    func aiProfile(for conversationID: UUID, fallbackName: String = "AI") -> AIProfileSettings {
+        aiProfilesByConversationID[conversationID] ?? AIProfileSettings(name: fallbackName)
+    }
+
+    func updateAIProfile(
+        for conversationID: UUID,
+        name rawName: String,
+        avatarImageData: Data?,
+        voicePreset: String
+    ) {
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeName = trimmedName.isEmpty ? (conversations.first(where: { $0.id == conversationID })?.name ?? "AI") : trimmedName
+        let safeVoice = AIProfileSettings.supportedVoicePresets.contains(voicePreset) ? voicePreset : "Kore"
+
+        aiProfilesByConversationID[conversationID] = AIProfileSettings(
+            name: safeName,
+            avatarImageData: avatarImageData,
+            voicePreset: safeVoice
+        )
+
+        if let index = conversations.firstIndex(where: { $0.id == conversationID }) {
+            let current = conversations[index]
+            conversations[index] = Conversation(
+                id: current.id,
+                name: safeName,
+                lastMessage: current.lastMessage,
+                timeText: current.timeText,
+                unreadCount: current.unreadCount,
+                avatarText: avatarInitial(from: safeName)
+            )
+        }
+        persistState()
+    }
+
     func selectedDictionaryCategoryTitle() -> String? {
         switch selectedDictionaryCategoryFilter {
         case .all:
@@ -246,6 +288,12 @@ final class ChatStore: ObservableObject {
         )
     }
 
+    private func avatarInitial(from name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else { return "A" }
+        return String(first).uppercased()
+    }
+
     private func currentTimeText() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
@@ -274,6 +322,7 @@ final class ChatStore: ObservableObject {
             messagesByConversationID = decoded.messagesByConversationID
             dictionaryEntries = decoded.dictionaryEntries
             dictionaryCategories = decoded.dictionaryCategories
+            aiProfilesByConversationID = decoded.aiProfilesByConversationID ?? [:]
         } catch {
             print("ChatStore persistence load failed:", error)
         }
@@ -284,13 +333,27 @@ final class ChatStore: ObservableObject {
             conversations: conversations,
             messagesByConversationID: messagesByConversationID,
             dictionaryEntries: dictionaryEntries,
-            dictionaryCategories: dictionaryCategories
+            dictionaryCategories: dictionaryCategories,
+            aiProfilesByConversationID: aiProfilesByConversationID
         )
         do {
             let data = try JSONEncoder().encode(snapshot)
             userDefaults.set(data, forKey: persistenceKey)
         } catch {
             print("ChatStore persistence save failed:", error)
+        }
+    }
+
+    private func ensureAIProfilesForConversations() {
+        var changed = false
+        for conversation in conversations {
+            if aiProfilesByConversationID[conversation.id] == nil {
+                aiProfilesByConversationID[conversation.id] = AIProfileSettings(name: conversation.name)
+                changed = true
+            }
+        }
+        if changed {
+            persistState()
         }
     }
 }

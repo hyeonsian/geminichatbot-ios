@@ -99,6 +99,27 @@ struct DictionaryCategory: Identifiable, Hashable, Codable {
     }
 }
 
+struct AIProfileSettings: Hashable, Codable {
+    var name: String
+    var avatarImageData: Data?
+    var voicePreset: String
+
+    init(name: String, avatarImageData: Data? = nil, voicePreset: String = "Kore") {
+        self.name = name
+        self.avatarImageData = avatarImageData
+        self.voicePreset = voicePreset
+    }
+
+    static let supportedVoicePresets: [String] = [
+        "Kore",
+        "Puck",
+        "Achird",
+        "Aoede",
+        "Charon",
+        "Fenrir"
+    ]
+}
+
 enum DictionaryCategoryFilter: Hashable {
     case all
     case category(UUID)
