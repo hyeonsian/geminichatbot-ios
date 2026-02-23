@@ -109,6 +109,10 @@ final class ChatStore: ObservableObject {
         )
     }
 
+    func deleteDictionaryEntry(_ entryID: UUID) {
+        dictionaryEntries.removeAll { $0.id == entryID }
+    }
+
     func setDictionaryCategoryFilter(_ filter: DictionaryCategoryFilter) {
         selectedDictionaryCategoryFilter = filter
     }

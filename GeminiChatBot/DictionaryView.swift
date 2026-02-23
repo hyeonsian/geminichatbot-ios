@@ -4,6 +4,7 @@ import UIKit
 struct DictionaryView: View {
     @EnvironmentObject private var chatStore: ChatStore
     @Environment(\.dismiss) private var dismiss
+    @State private var categoryEditEntry: DictionaryEntry?
 
     var body: some View {
         NavigationStack {
@@ -14,19 +15,37 @@ struct DictionaryView: View {
                 if chatStore.filteredDictionaryEntries().isEmpty {
                     emptyState
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(chatStore.filteredDictionaryEntries()) { entry in
-                                DictionaryEntryCard(
-                                    entry: entry,
-                                    categoryNames: chatStore.categoryBadges(for: entry)
-                                )
+                    List {
+                        ForEach(chatStore.filteredDictionaryEntries()) { entry in
+                            DictionaryEntryCard(
+                                entry: entry,
+                                categoryNames: chatStore.categoryBadges(for: entry)
+                            )
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    categoryEditEntry = entry
+                                } label: {
+                                    Label("Category", systemImage: "plus")
+                                }
+                                .tint(Color(red: 0.73, green: 0.86, blue: 0.98))
+
+                                Button(role: .destructive) {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        chatStore.deleteDictionaryEntry(entry.id)
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "minus")
+                                }
+                                .tint(Color(red: 0.98, green: 0.78, blue: 0.80))
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 20)
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
                 }
             }
             .toolbar {
@@ -60,6 +79,20 @@ struct DictionaryView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
         }
+        .sheet(item: $categoryEditEntry) { entry in
+            DictionaryEntryCategoryEditorSheet(
+                entry: entry,
+                categories: chatStore.dictionaryCategories,
+                onCreateCategory: { name in
+                    chatStore.createDictionaryCategory(named: name)
+                },
+                onSave: { selectedCategoryIDs in
+                    chatStore.setCategories(selectedCategoryIDs, for: entry.id)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var emptyState: some View {
@@ -79,6 +112,178 @@ struct DictionaryView: View {
             return "카테고리에 분류되지 않은 항목이 없습니다."
         case .category:
             return "이 카테고리에 저장된 항목이 없습니다."
+        }
+    }
+}
+
+private struct DictionaryEntryCategoryEditorSheet: View {
+    let entry: DictionaryEntry
+    let categories: [DictionaryCategory]
+    let onCreateCategory: (String) -> DictionaryCategory?
+    let onSave: ([UUID]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCategoryIDs: Set<UUID>
+    @State private var showAddAlert = false
+    @State private var newCategoryName = ""
+
+    init(
+        entry: DictionaryEntry,
+        categories: [DictionaryCategory],
+        onCreateCategory: @escaping (String) -> DictionaryCategory?,
+        onSave: @escaping ([UUID]) -> Void
+    ) {
+        self.entry = entry
+        self.categories = categories
+        self.onCreateCategory = onCreateCategory
+        self.onSave = onSave
+        _selectedCategoryIDs = State(initialValue: Set(entry.categoryIDs))
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("EXPRESSION")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .tracking(0.5)
+                            Text(entry.text)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("CATEGORIES")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .tracking(0.5)
+
+                            if categories.isEmpty {
+                                Text("카테고리가 없습니다. 새 카테고리를 만든 뒤 분류할 수 있어요.")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(Color(uiColor: .secondarySystemBackground))
+                                    )
+                            } else {
+                                VStack(spacing: 8) {
+                                    ForEach(categories) { category in
+                                        Button(action: {
+                                            toggle(category.id)
+                                        }) {
+                                            HStack {
+                                                Text(category.name)
+                                                    .foregroundStyle(.primary)
+                                                Spacer()
+                                                Image(systemName: selectedCategoryIDs.contains(category.id) ? "checkmark.circle.fill" : "circle")
+                                                    .foregroundStyle(selectedCategoryIDs.contains(category.id) ? Color.blue : .secondary)
+                                            }
+                                            .padding(12)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .fill(Color(uiColor: .secondarySystemBackground))
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+
+                VStack(spacing: 10) {
+                    Button(action: {
+                        onSave(Array(selectedCategoryIDs))
+                        dismiss()
+                    }) {
+                        Text("Apply Categories")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.blue)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            selectedCategoryIDs.removeAll()
+                        }) {
+                            Text("Clear")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            newCategoryName = ""
+                            showAddAlert = true
+                        }) {
+                            Label("New", systemImage: "plus")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.blue)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(16)
+                .background(Color(uiColor: .systemGroupedBackground))
+            }
+            .navigationTitle("Edit Categories")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .alert("새 카테고리", isPresented: $showAddAlert) {
+                TextField("카테고리 이름", text: $newCategoryName)
+                Button("추가") {
+                    if let created = onCreateCategory(newCategoryName) {
+                        selectedCategoryIDs.insert(created.id)
+                    }
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("카테고리 이름을 입력하세요.")
+            }
+        }
+    }
+
+    private func toggle(_ id: UUID) {
+        if selectedCategoryIDs.contains(id) {
+            selectedCategoryIDs.remove(id)
+        } else {
+            selectedCategoryIDs.insert(id)
         }
     }
 }
