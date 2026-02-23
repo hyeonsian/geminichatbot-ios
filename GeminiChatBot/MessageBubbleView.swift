@@ -21,12 +21,12 @@ struct MessageBubbleView: View {
     var body: some View {
         HStack {
             if message.role == .ai {
-                VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .bottom, spacing: 8) {
                     bubble
                         .frame(maxWidth: 290, alignment: .leading)
                     if hasAIActionButtons {
                         aiActionButtons
-                            .padding(.leading, 4)
+                            .padding(.bottom, 6)
                     }
                 }
                 Spacer(minLength: 34)
