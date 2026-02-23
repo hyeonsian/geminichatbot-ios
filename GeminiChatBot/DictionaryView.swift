@@ -62,24 +62,24 @@ struct DictionaryView: View {
         }
     }
 
-    @ViewBuilder
     private var emptyState: some View {
-        let description: String
-        switch chatStore.selectedDictionaryCategoryFilter {
-        case .all:
-            description = "Native alternatives에서 저장한 표현이 여기에 쌓입니다."
-        case .uncategorized:
-            description = "카테고리에 분류되지 않은 항목이 없습니다."
-        case .category:
-            description = "이 카테고리에 저장된 항목이 없습니다."
-        }
-
         ContentUnavailableView(
             "내 사전이 비어 있어요",
             systemImage: "book.closed",
-            description: Text(description)
+            description: Text(emptyStateDescription)
         )
         .padding(.horizontal, 24)
+    }
+
+    private var emptyStateDescription: String {
+        switch chatStore.selectedDictionaryCategoryFilter {
+        case .all:
+            return "Native alternatives에서 저장한 표현이 여기에 쌓입니다."
+        case .uncategorized:
+            return "카테고리에 분류되지 않은 항목이 없습니다."
+        case .category:
+            return "이 카테고리에 저장된 항목이 없습니다."
+        }
     }
 }
 
