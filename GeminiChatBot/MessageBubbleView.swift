@@ -21,14 +21,8 @@ struct MessageBubbleView: View {
     var body: some View {
         HStack {
             if message.role == .ai {
-                HStack(alignment: .bottom, spacing: 8) {
-                    bubble
-                        .frame(maxWidth: 290, alignment: .leading)
-                    if hasAIActionButtons {
-                        aiActionButtons
-                            .padding(.bottom, 6)
-                    }
-                }
+                bubble
+                    .frame(maxWidth: 290, alignment: .leading)
                 Spacer(minLength: 34)
             } else {
                 Spacer(minLength: 34)
@@ -46,9 +40,7 @@ struct MessageBubbleView: View {
                 aiTranslationContent
             }
 
-            Text(message.timeText)
-                .font(.system(size: 11))
-                .foregroundStyle(message.role == .ai ? Color.secondary : Color.white.opacity(0.85))
+            footerRow
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -68,6 +60,30 @@ struct MessageBubbleView: View {
                     .stroke(Color.orange.opacity(0.28), lineWidth: 1)
             }
         }
+    }
+
+    @ViewBuilder
+    private var footerRow: some View {
+        if message.role == .ai {
+            HStack(alignment: .center, spacing: 6) {
+                Spacer(minLength: 0)
+                timeText
+                if hasAIActionButtons {
+                    aiActionButtons
+                }
+            }
+        } else {
+            HStack {
+                Spacer(minLength: 0)
+                timeText
+            }
+        }
+    }
+
+    private var timeText: some View {
+        Text(message.timeText)
+            .font(.system(size: 11))
+            .foregroundStyle(message.role == .ai ? Color.secondary : Color.white.opacity(0.85))
     }
 
     @ViewBuilder
@@ -163,7 +179,7 @@ struct MessageBubbleView: View {
                 }
             }
             .foregroundStyle(tint)
-            .frame(width: 24, height: 24)
+            .frame(width: 20, height: 20)
             .background(
                 Circle()
                     .fill(Color(uiColor: .secondarySystemBackground))
