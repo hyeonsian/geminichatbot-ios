@@ -27,17 +27,21 @@ struct ChatView: View {
                                 let isSelectedUserMessage = message.role == .user && selectedUserMessageID == message.id
                                 VStack(spacing: 8) {
                                     if isSelectedUserMessage, let state = feedbackStates[message.id] {
-                                        UserMessageFeedbackCard(
-                                            originalText: message.text,
-                                            state: state,
-                                            nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
-                                            onTapNativeAlternatives: {
-                                                openNativeAlternatives(for: message)
+                                        HStack {
+                                            Spacer(minLength: 38)
+                                            UserMessageFeedbackCard(
+                                                originalText: message.text,
+                                                state: state,
+                                                nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
+                                                onTapNativeAlternatives: {
+                                                    openNativeAlternatives(for: message)
+                                                }
+                                            )
+                                            .frame(maxWidth: 340, alignment: .trailing)
+                                            .contentShape(Rectangle())
+                                            .onTapGesture {
+                                                handleMessageTap(message)
                                             }
-                                        )
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            handleMessageTap(message)
                                         }
                                         .transition(.opacity.combined(with: .move(edge: .top)))
                                     } else {
@@ -74,7 +78,13 @@ struct ChatView: View {
         .sheet(item: $nativeAlternativesSheetMessage) { message in
             NativeAlternativesSheet(
                 originalText: message.text,
-                state: nativeAlternativesStates[message.id] ?? .loading
+                state: nativeAlternativesStates[message.id] ?? .loading,
+                isAlreadySaved: { item in
+                    chatStore.isSavedDictionaryText(item.text)
+                },
+                onSaveOption: { item in
+                    chatStore.saveNativeAlternative(item, originalText: message.text)
+                }
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -539,6 +549,9 @@ private struct UserMessageFeedbackCard: View {
 private struct NativeAlternativesSheet: View {
     let originalText: String
     let state: NativeAlternativesLoadState
+    let isAlreadySaved: (NativeAlternativeItem) -> Bool
+    let onSaveOption: (NativeAlternativeItem) -> Bool
+    @State private var locallySavedKeys: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -627,6 +640,31 @@ private struct NativeAlternativesSheet: View {
                         Text(item.nuance)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
+
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                let key = normalizedKey(item.text)
+                                if onSaveOption(item) || isAlreadySaved(item) {
+                                    locallySavedKeys.insert(key)
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: savedState(for: item) ? "checkmark" : "plus")
+                                        .font(.system(size: 12, weight: .bold))
+                                    Text(savedState(for: item) ? "Saved" : "Save to My Dictionary")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundStyle(savedState(for: item) ? Color.green : Color.blue)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color(uiColor: .tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
@@ -637,6 +675,18 @@ private struct NativeAlternativesSheet: View {
                 }
             }
         }
+    }
+
+    private func normalizedKey(_ text: String) -> String {
+        text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .lowercased()
+    }
+
+    private func savedState(for item: NativeAlternativeItem) -> Bool {
+        let key = normalizedKey(item.text)
+        return locallySavedKeys.contains(key) || isAlreadySaved(item)
     }
 }
 

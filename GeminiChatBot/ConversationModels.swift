@@ -37,6 +37,46 @@ struct ChatMessage: Identifiable, Hashable {
     }
 }
 
+struct DictionaryEntry: Identifiable, Hashable {
+    let id: UUID
+    let kind: EntryKind
+    let text: String
+    let originalText: String
+    let tone: String
+    let nuance: String
+    let createdAt: Date
+
+    enum EntryKind: String, Hashable {
+        case native
+        case grammar
+
+        var label: String {
+            switch self {
+            case .native: return "#Native Expression"
+            case .grammar: return "#Grammar Correction"
+            }
+        }
+    }
+
+    init(
+        id: UUID = UUID(),
+        kind: EntryKind,
+        text: String,
+        originalText: String,
+        tone: String,
+        nuance: String,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+        self.originalText = originalText
+        self.tone = tone
+        self.nuance = nuance
+        self.createdAt = createdAt
+    }
+}
+
 enum SampleData {
     static let conversations: [Conversation] = [
         Conversation(

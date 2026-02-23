@@ -3,6 +3,7 @@ import UIKit
 
 struct ConversationListView: View {
     @EnvironmentObject private var chatStore: ChatStore
+    @State private var isDictionaryPresented = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,10 @@ struct ConversationListView: View {
                 bottomBar
             }
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $isDictionaryPresented) {
+                DictionaryView()
+                    .environmentObject(chatStore)
+            }
         }
     }
 
@@ -86,7 +91,9 @@ struct ConversationListView: View {
 
             Spacer()
 
-            Button(action: {}) {
+            Button(action: {
+                isDictionaryPresented = true
+            }) {
                 Image(systemName: "book")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(.primary)
