@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 struct AIProfileEditorView: View {
     let conversationID: UUID
@@ -14,6 +15,8 @@ struct AIProfileEditorView: View {
     @State private var draftAvatarImageData: Data?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var showClearHistoryConfirmation = false
+    @State private var voicePreviewPlayer: AVAudioPlayer?
+    @State private var isVoicePreviewLoading = false
 
     var body: some View {
         ZStack {
@@ -56,6 +59,9 @@ struct AIProfileEditorView: View {
         .onAppear {
             loadDraft()
         }
+        .onDisappear {
+            stopVoicePreviewPlayback()
+        }
         .onChange(of: selectedPhotoItem) { item in
             guard let item else { return }
             Task {
@@ -65,6 +71,10 @@ struct AIProfileEditorView: View {
                     }
                 }
             }
+        }
+        .onChange(of: draftVoicePreset) { _ in
+            guard isEditing else { return }
+            playVoicePresetPreview()
         }
         .alert("대화 내역 지우기", isPresented: $showClearHistoryConfirmation) {
             Button("취소", role: .cancel) {}
@@ -129,19 +139,32 @@ struct AIProfileEditorView: View {
                 .foregroundStyle(.secondary)
                 .tracking(0.5)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Choose TTS voice")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("Choose TTS voice")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
 
-                Picker("Voice Preset", selection: $draftVoicePreset) {
-                    ForEach(AIProfileSettings.supportedVoicePresets, id: \.self) { preset in
-                        Text(preset).tag(preset)
+                    Spacer()
+
+                    if isVoicePreviewLoading {
+                        ProgressView()
+                            .controlSize(.small)
                     }
+
+                    Picker("Voice Preset", selection: $draftVoicePreset) {
+                        ForEach(AIProfileSettings.supportedVoicePresets, id: \.self) { preset in
+                            Text(preset).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .disabled(!isEditing)
                 }
-                .pickerStyle(.menu)
-                .disabled(!isEditing)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Selecting a voice plays a short preview.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
             .padding(14)
             .background(
@@ -238,6 +261,46 @@ struct AIProfileEditorView: View {
             voicePreset: draftVoicePreset
         )
         isEditing = false
+    }
+
+    private func previewVoiceText() -> String {
+        let trimmedName = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeName = trimmedName.isEmpty ? currentProfile.name : trimmedName
+        return "Hi, I'm \(safeName). Nice to meet you."
+    }
+
+    private func playVoicePresetPreview() {
+        stopVoicePreviewPlayback()
+        isVoicePreviewLoading = true
+
+        let text = previewVoiceText()
+        let selectedVoice = draftVoicePreset
+
+        Task {
+            do {
+                let audioData = try await BackendAPIClient.shared.ttsAudio(
+                    text: text,
+                    voiceName: selectedVoice
+                )
+                let player = try AVAudioPlayer(data: audioData)
+                player.prepareToPlay()
+                await MainActor.run {
+                    self.voicePreviewPlayer = player
+                    self.isVoicePreviewLoading = false
+                    player.play()
+                }
+            } catch {
+                await MainActor.run {
+                    self.isVoicePreviewLoading = false
+                }
+            }
+        }
+    }
+
+    private func stopVoicePreviewPlayback() {
+        voicePreviewPlayer?.stop()
+        voicePreviewPlayer = nil
+        isVoicePreviewLoading = false
     }
 }
 
