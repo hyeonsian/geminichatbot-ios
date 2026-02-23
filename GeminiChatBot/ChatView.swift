@@ -9,6 +9,8 @@ struct ChatView: View {
     @State private var messageText: String = ""
     @State private var selectedUserMessageID: UUID?
     @State private var feedbackStates: [UUID: UserMessageFeedbackState] = [:]
+    @State private var nativeAlternativesStates: [UUID: NativeAlternativesLoadState] = [:]
+    @State private var nativeAlternativesSheetMessage: ChatMessage?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -37,7 +39,11 @@ struct ChatView: View {
                                        let state = feedbackStates[message.id] {
                                         UserMessageFeedbackCard(
                                             originalText: message.text,
-                                            state: state
+                                            state: state,
+                                            nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
+                                            onTapNativeAlternatives: {
+                                                openNativeAlternatives(for: message)
+                                            }
                                         )
                                         .transition(.opacity.combined(with: .move(edge: .top)))
                                     }
@@ -62,6 +68,14 @@ struct ChatView: View {
             inputBar
         }
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $nativeAlternativesSheetMessage) { message in
+            NativeAlternativesSheet(
+                originalText: message.text,
+                state: nativeAlternativesStates[message.id] ?? .loading
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var header: some View {
@@ -182,6 +196,33 @@ struct ChatView: View {
             }
         }
     }
+
+    private func openNativeAlternatives(for message: ChatMessage) {
+        guard message.role == .user else { return }
+        nativeAlternativesSheetMessage = message
+
+        if case .some(.loaded(_)) = nativeAlternativesStates[message.id] {
+            return
+        }
+        if case .some(.loading) = nativeAlternativesStates[message.id] {
+            return
+        }
+
+        nativeAlternativesStates[message.id] = .loading
+
+        Task {
+            do {
+                let items = try await BackendAPIClient.shared.nativeAlternatives(text: message.text)
+                await MainActor.run {
+                    nativeAlternativesStates[message.id] = .loaded(items)
+                }
+            } catch {
+                await MainActor.run {
+                    nativeAlternativesStates[message.id] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
 }
 
 private enum UserMessageFeedbackState {
@@ -190,9 +231,18 @@ private enum UserMessageFeedbackState {
     case failed(String)
 }
 
+private enum NativeAlternativesLoadState {
+    case idle
+    case loading
+    case loaded([NativeAlternativeItem])
+    case failed(String)
+}
+
 private struct UserMessageFeedbackCard: View {
     let originalText: String
     let state: UserMessageFeedbackState
+    let nativeAlternativesState: NativeAlternativesLoadState
+    let onTapNativeAlternatives: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -237,6 +287,8 @@ private struct UserMessageFeedbackCard: View {
                         .fill(Color(uiColor: .secondarySystemBackground))
                 )
             }
+
+            nativeAlternativesButton
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -248,6 +300,51 @@ private struct UserMessageFeedbackCard: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.blue.opacity(0.14), lineWidth: 1)
         )
+    }
+
+    private var nativeAlternativesButton: some View {
+        Button(action: onTapNativeAlternatives) {
+            HStack(spacing: 8) {
+                if case .loading = nativeAlternativesState {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                Text(nativeAlternativesButtonLabel)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(Color.blue)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.blue.opacity(0.12), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled({
+            if case .loading = nativeAlternativesState { return true }
+            return false
+        }())
+    }
+
+    private var nativeAlternativesButtonLabel: String {
+        switch nativeAlternativesState {
+        case .idle:
+            return "Native alternatives"
+        case .loading:
+            return "Loading alternatives..."
+        case .loaded:
+            return "Open native alternatives"
+        case .failed:
+            return "Retry native alternatives"
+        }
     }
 
     @ViewBuilder
@@ -449,6 +546,110 @@ private struct UserMessageFeedbackCard: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(uiColor: .tertiarySystemBackground))
         )
+    }
+}
+
+private struct NativeAlternativesSheet: View {
+    let originalText: String
+    let state: NativeAlternativesLoadState
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("YOUR MESSAGE")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .tracking(0.5)
+                        Text(originalText)
+                            .font(.system(size: 16))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color(uiColor: .secondarySystemBackground))
+                            )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("NATIVE ALTERNATIVES")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .tracking(0.5)
+
+                        content
+                    }
+                }
+                .padding(16)
+                .padding(.bottom, 20)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Native alternatives")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch state {
+        case .idle, .loading:
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Generating natural alternatives...")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+
+        case let .failed(message):
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+
+        case let .loaded(items):
+            VStack(spacing: 10) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Option \(index + 1)")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(item.tone)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color.blue)
+                        }
+
+                        Text(item.text)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.primary)
+
+                        Text(item.nuance)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+                }
+            }
+        }
     }
 }
 
