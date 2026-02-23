@@ -80,11 +80,15 @@ struct ChatView: View {
             NativeAlternativesSheet(
                 originalText: message.text,
                 state: nativeAlternativesStates[message.id] ?? .loading,
+                availableCategories: chatStore.dictionaryCategories,
                 isAlreadySaved: { item in
                     chatStore.isSavedDictionaryText(item.text)
                 },
-                onSaveOption: { item in
-                    chatStore.saveNativeAlternative(item, originalText: message.text)
+                onCreateCategory: { name in
+                    chatStore.createDictionaryCategory(named: name)
+                },
+                onSaveOption: { item, categoryIDs in
+                    chatStore.saveNativeAlternative(item, originalText: message.text, categoryIDs: categoryIDs)
                 }
             )
             .presentationDetents([.medium, .large])
@@ -932,9 +936,13 @@ private struct UserMessageFeedbackCard: View {
 private struct NativeAlternativesSheet: View {
     let originalText: String
     let state: NativeAlternativesLoadState
+    let availableCategories: [DictionaryCategory]
     let isAlreadySaved: (NativeAlternativeItem) -> Bool
-    let onSaveOption: (NativeAlternativeItem) -> Bool
+    let onCreateCategory: (String) -> DictionaryCategory?
+    let onSaveOption: (NativeAlternativeItem, [UUID]) -> Bool
     @State private var locallySavedKeys: Set<String> = []
+    @State private var pendingSaveItem: NativeAlternativeItem?
+    @State private var isCategoryPickerPresented = false
 
     var body: some View {
         NavigationStack {
@@ -971,6 +979,33 @@ private struct NativeAlternativesSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Native alternatives")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $isCategoryPickerPresented) {
+            if let pendingSaveItem {
+                NativeAlternativeCategoryPickerSheet(
+                    item: pendingSaveItem,
+                    categories: availableCategories,
+                    onCreateCategory: onCreateCategory,
+                    onSave: { selectedCategoryIDs in
+                        let key = normalizedKey(pendingSaveItem.text)
+                        if onSaveOption(pendingSaveItem, selectedCategoryIDs) || isAlreadySaved(pendingSaveItem) {
+                            locallySavedKeys.insert(key)
+                        }
+                        isCategoryPickerPresented = false
+                        self.pendingSaveItem = nil
+                    },
+                    onSaveWithoutCategory: {
+                        let key = normalizedKey(pendingSaveItem.text)
+                        if onSaveOption(pendingSaveItem, []) || isAlreadySaved(pendingSaveItem) {
+                            locallySavedKeys.insert(key)
+                        }
+                        isCategoryPickerPresented = false
+                        self.pendingSaveItem = nil
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
         }
     }
 
@@ -1027,10 +1062,8 @@ private struct NativeAlternativesSheet: View {
                         HStack {
                             Spacer()
                             Button(action: {
-                                let key = normalizedKey(item.text)
-                                if onSaveOption(item) || isAlreadySaved(item) {
-                                    locallySavedKeys.insert(key)
-                                }
+                                pendingSaveItem = item
+                                isCategoryPickerPresented = true
                             }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: savedState(for: item) ? "checkmark" : "plus")
@@ -1074,6 +1107,167 @@ private struct NativeAlternativesSheet: View {
     private func savedState(for item: NativeAlternativeItem) -> Bool {
         let key = normalizedKey(item.text)
         return locallySavedKeys.contains(key) || isAlreadySaved(item)
+    }
+}
+
+private struct NativeAlternativeCategoryPickerSheet: View {
+    let item: NativeAlternativeItem
+    let categories: [DictionaryCategory]
+    let onCreateCategory: (String) -> DictionaryCategory?
+    let onSave: ([UUID]) -> Void
+    let onSaveWithoutCategory: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCategoryIDs: Set<UUID> = []
+    @State private var showAddAlert = false
+    @State private var newCategoryName = ""
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("SAVE TO MY DICTIONARY")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .tracking(0.5)
+                            Text(item.text)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("CATEGORY")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .tracking(0.5)
+
+                            if categories.isEmpty {
+                                Text("카테고리가 아직 없습니다. 바로 저장하거나 새 카테고리를 만들어서 저장할 수 있어요.")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(Color(uiColor: .secondarySystemBackground))
+                                    )
+                            } else {
+                                VStack(spacing: 8) {
+                                    ForEach(categories) { category in
+                                        Button(action: {
+                                            toggle(category.id)
+                                        }) {
+                                            HStack {
+                                                Text(category.name)
+                                                    .foregroundStyle(.primary)
+                                                Spacer()
+                                                Image(systemName: selectedCategoryIDs.contains(category.id) ? "checkmark.circle.fill" : "circle")
+                                                    .foregroundStyle(selectedCategoryIDs.contains(category.id) ? Color.blue : .secondary)
+                                            }
+                                            .padding(12)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .fill(Color(uiColor: .secondarySystemBackground))
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+
+                VStack(spacing: 10) {
+                    Button(action: {
+                        onSave(Array(selectedCategoryIDs))
+                        dismiss()
+                    }) {
+                        Text(selectedCategoryIDs.isEmpty ? "Save to Dictionary" : "Save with Selected Categories")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.blue)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            onSaveWithoutCategory()
+                            dismiss()
+                        }) {
+                            Text("Save without Category")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            newCategoryName = ""
+                            showAddAlert = true
+                        }) {
+                            Label("New", systemImage: "plus")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.blue)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(16)
+                .background(Color(uiColor: .systemGroupedBackground))
+            }
+            .navigationTitle("Select Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .alert("새 카테고리", isPresented: $showAddAlert) {
+                TextField("카테고리 이름", text: $newCategoryName)
+                Button("추가") {
+                    if let created = onCreateCategory(newCategoryName) {
+                        selectedCategoryIDs.insert(created.id)
+                    }
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("저장할 새 카테고리 이름을 입력하세요.")
+            }
+        }
+    }
+
+    private func toggle(_ id: UUID) {
+        if selectedCategoryIDs.contains(id) {
+            selectedCategoryIDs.remove(id)
+        } else {
+            selectedCategoryIDs.insert(id)
+        }
     }
 }
 

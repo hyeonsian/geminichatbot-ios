@@ -45,6 +45,7 @@ struct DictionaryEntry: Identifiable, Hashable {
     let tone: String
     let nuance: String
     let createdAt: Date
+    let categoryIDs: [UUID]
 
     enum EntryKind: String, Hashable {
         case native
@@ -65,7 +66,8 @@ struct DictionaryEntry: Identifiable, Hashable {
         originalText: String,
         tone: String,
         nuance: String,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        categoryIDs: [UUID] = []
     ) {
         self.id = id
         self.kind = kind
@@ -74,7 +76,26 @@ struct DictionaryEntry: Identifiable, Hashable {
         self.tone = tone
         self.nuance = nuance
         self.createdAt = createdAt
+        self.categoryIDs = categoryIDs
     }
+}
+
+struct DictionaryCategory: Identifiable, Hashable {
+    let id: UUID
+    let name: String
+    let createdAt: Date
+
+    init(id: UUID = UUID(), name: String, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+    }
+}
+
+enum DictionaryCategoryFilter: Hashable {
+    case all
+    case category(UUID)
+    case uncategorized
 }
 
 enum SampleData {
