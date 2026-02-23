@@ -32,43 +32,8 @@ struct ChatView: View {
                         ScrollView {
                             LazyVStack(spacing: 10) {
                                 ForEach(chatStore.messages(for: conversation)) { message in
-                                    let matched = searchMatchMessageIDs.contains(message.id)
-                                    let activeMatched = selectedSearchMatchMessageID == message.id
-                                let isSelectedUserMessage = message.role == .user && selectedUserMessageID == message.id
-                                    VStack(spacing: 8) {
-                                        if isSelectedUserMessage, let state = feedbackStates[message.id] {
-                                            HStack {
-                                                Spacer(minLength: 54)
-                                                UserMessageFeedbackCard(
-                                                    originalText: message.text,
-                                                    state: state,
-                                                    nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
-                                                    onTapNativeAlternatives: {
-                                                        openNativeAlternatives(for: message)
-                                                    }
-                                                )
-                                                .frame(maxWidth: 320, alignment: .trailing)
-                                                .contentShape(Rectangle())
-                                                .onTapGesture {
-                                                    handleMessageTap(message)
-                                                }
-                                            }
-                                            .transition(.opacity.combined(with: .move(edge: .top)))
-                                        } else {
-                                            MessageBubbleView(
-                                                message: message,
-                                                isSelected: false,
-                                                highlightQuery: searchQuery,
-                                                isSearchMatched: matched,
-                                                isActiveSearchMatch: activeMatched
-                                            )
-                                        }
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            handleMessageTap(message)
-                                        }
-                                    }
-                                    .id(message.id)
+                                    messageRow(message)
+                                        .id(message.id)
                                 }
                             }
                             .padding(.horizontal, 14)
@@ -228,18 +193,13 @@ struct ChatView: View {
 
             Spacer()
 
-            Button(action: {}) {
+            Button(action: toggleSearchVisibility) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(Color.blue)
                     .frame(width: 28, height: 28)
             }
             .contentTransition(.symbolEffect(.replace))
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    isSearchVisible.toggle()
-                }
-            }
             .opacity(0.9)
         }
         .padding(.horizontal, 16)
@@ -283,6 +243,53 @@ struct ChatView: View {
         guard !trimmed.isEmpty else { return }
         chatStore.sendUserMessage(trimmed, in: conversation)
         messageText = ""
+    }
+
+    @ViewBuilder
+    private func messageRow(_ message: ChatMessage) -> some View {
+        let matched = searchMatchMessageIDs.contains(message.id)
+        let activeMatched = selectedSearchMatchMessageID == message.id
+        let isSelectedUserMessage = message.role == .user && selectedUserMessageID == message.id
+
+        VStack(spacing: 8) {
+            if isSelectedUserMessage, let state = feedbackStates[message.id] {
+                HStack {
+                    Spacer(minLength: 54)
+                    UserMessageFeedbackCard(
+                        originalText: message.text,
+                        state: state,
+                        nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
+                        onTapNativeAlternatives: {
+                            openNativeAlternatives(for: message)
+                        }
+                    )
+                    .frame(maxWidth: 320, alignment: .trailing)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        handleMessageTap(message)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                MessageBubbleView(
+                    message: message,
+                    isSelected: false,
+                    highlightQuery: searchQuery,
+                    isSearchMatched: matched,
+                    isActiveSearchMatch: activeMatched
+                )
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            handleMessageTap(message)
+        }
+    }
+
+    private func toggleSearchVisibility() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isSearchVisible.toggle()
+        }
     }
 
     private func handleMessageTap(_ message: ChatMessage) {
