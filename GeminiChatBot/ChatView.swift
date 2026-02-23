@@ -195,17 +195,9 @@ private struct UserMessageFeedbackCard: View {
     let state: UserMessageFeedbackState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             sectionLabel("YOUR MESSAGE")
-            Text(originalText)
-                .font(.system(size: 16))
-                .foregroundStyle(.primary)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemBackground))
-                )
+            originalMessageBox
 
             sectionLabel("NATIVE FEEDBACK")
             feedbackBody
@@ -224,6 +216,27 @@ private struct UserMessageFeedbackCard: View {
                             .fill(Color(uiColor: .secondarySystemBackground))
                     )
             }
+
+            if case let .loaded(data) = state,
+               !data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sectionLabel("MORE NATURAL WAY")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(data.naturalAlternative)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    if !data.naturalReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(data.naturalReason)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -234,6 +247,27 @@ private struct UserMessageFeedbackCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.blue.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var originalMessageBox: some View {
+        Group {
+            if case let .loaded(data) = state {
+                highlightedOriginalMessageText(highlights: highlightTerms(from: data))
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+            } else {
+                Text(originalText)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
         )
     }
 
@@ -273,6 +307,20 @@ private struct UserMessageFeedbackCard: View {
                             feedbackPointRow(point)
                         }
                     }
+                } else if !data.hasErrors {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(Color.green)
+                        Text("No grammar issues.")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(uiColor: .tertiarySystemBackground))
+                    )
                 }
 
                 if !data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -307,6 +355,73 @@ private struct UserMessageFeedbackCard: View {
             .font(.system(size: 12, weight: .bold))
             .foregroundStyle(.secondary)
             .tracking(0.5)
+    }
+
+    private func highlightTerms(from data: GrammarFeedbackResponse) -> [String] {
+        let fromPoints = data.feedbackPoints.map { $0.part }
+        let fromEdits = data.edits.map { $0.wrong }
+        let all = (fromPoints + fromEdits)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+
+        var result: [String] = []
+        var seen = Set<String>()
+        for item in all {
+            let key = item.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            result.append(item)
+        }
+        return result
+    }
+
+    private func highlightedOriginalMessageText(highlights: [String]) -> Text {
+        let source = originalText
+        guard !source.isEmpty, !highlights.isEmpty else { return Text(source) }
+
+        let nsSource = source as NSString
+        var matches: [NSRange] = []
+
+        for term in highlights {
+            guard !term.isEmpty else { continue }
+            let escaped = NSRegularExpression.escapedPattern(for: term)
+            guard let regex = try? NSRegularExpression(pattern: escaped, options: [.caseInsensitive]) else { continue }
+            let found = regex.matches(in: source, options: [], range: NSRange(location: 0, length: nsSource.length))
+            matches.append(contentsOf: found.map(\.range))
+        }
+
+        if matches.isEmpty { return Text(source) }
+
+        matches.sort { a, b in
+            if a.location == b.location { return a.length > b.length }
+            return a.location < b.location
+        }
+
+        var nonOverlapping: [NSRange] = []
+        var lastEnd = 0
+        for range in matches {
+            guard range.location >= lastEnd else { continue }
+            nonOverlapping.append(range)
+            lastEnd = range.location + range.length
+        }
+
+        var text = Text("")
+        var cursor = 0
+        for range in nonOverlapping {
+            if range.location > cursor {
+                let prefix = nsSource.substring(with: NSRange(location: cursor, length: range.location - cursor))
+                text = text + Text(prefix)
+            }
+            let matched = nsSource.substring(with: range)
+            text = text + Text(matched).foregroundColor(.red).fontWeight(.semibold)
+            cursor = range.location + range.length
+        }
+        if cursor < nsSource.length {
+            let suffix = nsSource.substring(with: NSRange(location: cursor, length: nsSource.length - cursor))
+            text = text + Text(suffix)
+        }
+        return text
     }
 
     private func feedbackPointRow(_ point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> some View {
