@@ -83,7 +83,13 @@ private struct TranslateRequest: Encodable {
 
 private struct ChatRequest: Encodable {
     let message: String
+    let history: [BackendChatHistoryItem]?
     let model: String?
+}
+
+struct BackendChatHistoryItem: Encodable, Hashable {
+    let role: String
+    let text: String
 }
 
 private struct TTSRequest: Encodable {
@@ -148,8 +154,16 @@ final class BackendAPIClient {
         return response.translation
     }
 
-    func chatReply(message: String, model: String? = nil) async throws -> String {
-        let req = ChatRequest(message: message, model: model)
+    func chatReply(
+        message: String,
+        history: [BackendChatHistoryItem] = [],
+        model: String? = nil
+    ) async throws -> String {
+        let req = ChatRequest(
+            message: message,
+            history: history.isEmpty ? nil : history,
+            model: model
+        )
         let response = try await post(path: "/api/chat", body: req, responseType: ChatResponse.self)
         let trimmed = response.reply.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { throw BackendAPIError.emptyResponse }

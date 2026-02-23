@@ -57,11 +57,15 @@ final class ChatStore: ObservableObject {
         appendMessage(ChatMessage(role: .user, text: trimmed, timeText: currentTimeText()), to: conversation)
         updateConversationPreview(for: conversation, lastMessage: trimmed, unreadCount: 0)
         persistState()
+        let recentHistory = recentChatHistoryForBackend(in: conversation.id, excludingLatestUserMessage: true)
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let reply = try await BackendAPIClient.shared.chatReply(message: trimmed)
+                let reply = try await BackendAPIClient.shared.chatReply(
+                    message: trimmed,
+                    history: recentHistory
+                )
                 await MainActor.run {
                     self.appendMessage(ChatMessage(role: .ai, text: reply, timeText: self.currentTimeText()), to: conversation)
                     self.updateConversationPreview(for: conversation, lastMessage: reply, unreadCount: 0)
@@ -323,6 +327,29 @@ final class ChatStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
             .lowercased()
+    }
+
+    private func recentChatHistoryForBackend(
+        in conversationID: UUID,
+        excludingLatestUserMessage: Bool
+    ) -> [BackendChatHistoryItem] {
+        var messages = messagesByConversationID[conversationID] ?? []
+        if excludingLatestUserMessage,
+           let last = messages.last,
+           last.role == .user {
+            messages.removeLast()
+        }
+
+        return messages
+            .suffix(12)
+            .compactMap { message in
+                let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return BackendChatHistoryItem(
+                    role: message.role == .user ? "user" : "ai",
+                    text: trimmed
+                )
+            }
     }
 
     private func validatedCategoryName(_ rawName: String, excluding id: UUID?) -> String? {
