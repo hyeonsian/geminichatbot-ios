@@ -77,7 +77,7 @@ struct DictionaryView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: handleTopRightCategoryButtonTap) {
-                        Image(systemName: "square.grid.2x2")
+                        Image(systemName: selectedManagedCategory != nil ? "square.and.pencil" : "square.grid.2x2")
                             .foregroundStyle(Color.blue)
                     }
                 }
@@ -199,7 +199,7 @@ struct DictionaryView: View {
     private func handleBackButtonTap() {
         switch chatStore.selectedDictionaryCategoryFilter {
         case .category:
-            openCategoriesPage()
+            chatStore.setDictionaryCategoryFilter(.all)
         default:
             dismiss()
         }
@@ -419,6 +419,18 @@ private struct DictionaryEntryCard: View {
     let categoryNames: [String]
     var leadingTopCaption: String? = nil
 
+    private var cardFillColor: Color {
+        Color(
+            uiColor: UIColor { traits in
+                if traits.userInterfaceStyle == .dark {
+                    return UIColor.secondarySystemBackground
+                }
+                // Near-white to keep contrast against grouped background without harsh pure white.
+                return UIColor(red: 0.985, green: 0.987, blue: 0.993, alpha: 1.0)
+            }
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let leadingTopCaption, !leadingTopCaption.isEmpty {
@@ -502,7 +514,7 @@ private struct DictionaryEntryCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+                .fill(cardFillColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
