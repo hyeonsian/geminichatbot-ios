@@ -57,6 +57,10 @@ private struct TranslateResponse: Decodable {
     let translation: String
 }
 
+private struct ChatResponse: Decodable {
+    let reply: String
+}
+
 private struct BackendErrorResponse: Decodable {
     let error: String
 }
@@ -74,6 +78,11 @@ private struct NativeAlternativesRequest: Encodable {
 private struct TranslateRequest: Encodable {
     let text: String
     let targetLang: String
+    let model: String?
+}
+
+private struct ChatRequest: Encodable {
+    let message: String
     let model: String?
 }
 
@@ -131,6 +140,14 @@ final class BackendAPIClient {
             throw BackendAPIError.emptyResponse
         }
         return response.translation
+    }
+
+    func chatReply(message: String, model: String? = nil) async throws -> String {
+        let req = ChatRequest(message: message, model: model)
+        let response = try await post(path: "/api/chat", body: req, responseType: ChatResponse.self)
+        let trimmed = response.reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { throw BackendAPIError.emptyResponse }
+        return trimmed
     }
 
     private func post<Request: Encodable, Response: Decodable>(

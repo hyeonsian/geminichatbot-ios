@@ -1121,6 +1121,8 @@ private struct NativeAlternativeCategoryPickerSheet: View {
     @State private var selectedCategoryIDs: Set<UUID> = []
     @State private var showAddAlert = false
     @State private var newCategoryName = ""
+    @State private var categoryValidationErrorMessage = ""
+    @State private var showCategoryValidationErrorAlert = false
 
     var body: some View {
         NavigationStack {
@@ -1251,13 +1253,24 @@ private struct NativeAlternativeCategoryPickerSheet: View {
             .alert("새 카테고리", isPresented: $showAddAlert) {
                 TextField("카테고리 이름", text: $newCategoryName)
                 Button("추가") {
-                    if let created = onCreateCategory(newCategoryName) {
+                    if let validationMessage = validateCategoryName(newCategoryName) {
+                        categoryValidationErrorMessage = validationMessage
+                        showCategoryValidationErrorAlert = true
+                    } else if let created = onCreateCategory(newCategoryName) {
                         selectedCategoryIDs.insert(created.id)
+                    } else {
+                        categoryValidationErrorMessage = "카테고리를 저장하지 못했습니다. 다시 시도해주세요."
+                        showCategoryValidationErrorAlert = true
                     }
                 }
                 Button("취소", role: .cancel) {}
             } message: {
                 Text("저장할 새 카테고리 이름을 입력하세요.")
+            }
+            .alert("카테고리 저장 실패", isPresented: $showCategoryValidationErrorAlert) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text(categoryValidationErrorMessage)
             }
         }
     }
@@ -1268,6 +1281,15 @@ private struct NativeAlternativeCategoryPickerSheet: View {
         } else {
             selectedCategoryIDs.insert(id)
         }
+    }
+
+    private func validateCategoryName(_ rawName: String) -> String? {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "카테고리 이름을 입력하세요." }
+        if categories.contains(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return "같은 이름의 카테고리가 이미 있습니다."
+        }
+        return nil
     }
 }
 

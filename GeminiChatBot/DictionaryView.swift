@@ -8,7 +8,10 @@ struct DictionaryView: View {
     @State private var navigationPath: [DictionaryRoute] = []
     @State private var showCategoryManageDialog = false
     @State private var showRenameCategoryAlert = false
+    @State private var showDeleteCategoryConfirmAlert = false
     @State private var renameCategoryName = ""
+    @State private var categoryValidationErrorMessage = ""
+    @State private var showCategoryValidationErrorAlert = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -113,9 +116,7 @@ struct DictionaryView: View {
                     showRenameCategoryAlert = true
                 }
                 Button("카테고리 삭제", role: .destructive) {
-                    if let category = selectedManagedCategory {
-                        chatStore.deleteDictionaryCategory(category.id)
-                    }
+                    showDeleteCategoryConfirmAlert = true
                 }
                 Button("카테고리 선택 페이지 열기") {
                     openCategoriesPage()
@@ -127,12 +128,36 @@ struct DictionaryView: View {
             TextField("카테고리 이름", text: $renameCategoryName)
             Button("저장") {
                 if let category = selectedManagedCategory {
-                    _ = chatStore.renameDictionaryCategory(id: category.id, to: renameCategoryName)
+                    if let validationError = chatStore.validateDictionaryCategoryName(renameCategoryName, excluding: category.id) {
+                        categoryValidationErrorMessage = validationError.errorDescription ?? "카테고리 이름을 확인해주세요."
+                        showCategoryValidationErrorAlert = true
+                    } else {
+                        _ = chatStore.renameDictionaryCategory(id: category.id, to: renameCategoryName)
+                    }
                 }
             }
             Button("취소", role: .cancel) {}
         } message: {
             Text("새 카테고리 이름을 입력하세요.")
+        }
+        .alert("카테고리 삭제", isPresented: $showDeleteCategoryConfirmAlert) {
+            Button("삭제", role: .destructive) {
+                if let category = selectedManagedCategory {
+                    chatStore.deleteDictionaryCategory(category.id)
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            if let category = selectedManagedCategory {
+                Text("'\(category.name)' 카테고리를 삭제할까요? 저장된 항목은 삭제되지 않고 카테고리 연결만 제거됩니다.")
+            } else {
+                Text("카테고리를 삭제할까요?")
+            }
+        }
+        .alert("카테고리 저장 실패", isPresented: $showCategoryValidationErrorAlert) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(categoryValidationErrorMessage)
         }
     }
 
@@ -208,6 +233,8 @@ private struct DictionaryEntryCategoryEditorSheet: View {
     @State private var selectedCategoryIDs: Set<UUID>
     @State private var showAddAlert = false
     @State private var newCategoryName = ""
+    @State private var categoryValidationErrorMessage = ""
+    @State private var showCategoryValidationErrorAlert = false
 
     init(
         entry: DictionaryEntry,
@@ -350,13 +377,21 @@ private struct DictionaryEntryCategoryEditorSheet: View {
             .alert("새 카테고리", isPresented: $showAddAlert) {
                 TextField("카테고리 이름", text: $newCategoryName)
                 Button("추가") {
-                    if let created = onCreateCategory(newCategoryName) {
+                    if let validationError = validateCategoryName(newCategoryName) {
+                        categoryValidationErrorMessage = validationError
+                        showCategoryValidationErrorAlert = true
+                    } else if let created = onCreateCategory(newCategoryName) {
                         selectedCategoryIDs.insert(created.id)
                     }
                 }
                 Button("취소", role: .cancel) {}
             } message: {
                 Text("카테고리 이름을 입력하세요.")
+            }
+            .alert("카테고리 저장 실패", isPresented: $showCategoryValidationErrorAlert) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text(categoryValidationErrorMessage)
             }
         }
     }
@@ -367,6 +402,15 @@ private struct DictionaryEntryCategoryEditorSheet: View {
         } else {
             selectedCategoryIDs.insert(id)
         }
+    }
+
+    private func validateCategoryName(_ rawName: String) -> String? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return "카테고리 이름을 입력하세요." }
+        if categories.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            return "같은 이름의 카테고리가 이미 있습니다."
+        }
+        return nil
     }
 }
 
@@ -479,6 +523,8 @@ private struct DictionaryCategoriesView: View {
 
     @State private var showAddAlert = false
     @State private var newCategoryName = ""
+    @State private var categoryValidationErrorMessage = ""
+    @State private var showCategoryValidationErrorAlert = false
 
     var body: some View {
         List {
@@ -533,11 +579,21 @@ private struct DictionaryCategoriesView: View {
         .alert("새 카테고리", isPresented: $showAddAlert) {
             TextField("카테고리 이름", text: $newCategoryName)
             Button("추가") {
-                _ = chatStore.createDictionaryCategory(named: newCategoryName)
+                if let validationError = chatStore.validateDictionaryCategoryName(newCategoryName) {
+                    categoryValidationErrorMessage = validationError.errorDescription ?? "카테고리 이름을 확인해주세요."
+                    showCategoryValidationErrorAlert = true
+                } else {
+                    _ = chatStore.createDictionaryCategory(named: newCategoryName)
+                }
             }
             Button("취소", role: .cancel) {}
         } message: {
             Text("사전 분류용 카테고리 이름을 입력하세요.")
+        }
+        .alert("카테고리 저장 실패", isPresented: $showCategoryValidationErrorAlert) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(categoryValidationErrorMessage)
         }
     }
 

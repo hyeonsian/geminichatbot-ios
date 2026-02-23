@@ -3,17 +3,43 @@ import Combine
 
 @MainActor
 final class ChatStore: ObservableObject {
+    private struct PersistedState: Codable {
+        let conversations: [Conversation]
+        let messagesByConversationID: [UUID: [ChatMessage]]
+        let dictionaryEntries: [DictionaryEntry]
+        let dictionaryCategories: [DictionaryCategory]
+    }
+
+    enum CategoryNameValidationError: LocalizedError {
+        case empty
+        case duplicate
+
+        var errorDescription: String? {
+            switch self {
+            case .empty:
+                return "카테고리 이름을 입력하세요."
+            case .duplicate:
+                return "같은 이름의 카테고리가 이미 있습니다."
+            }
+        }
+    }
+
+    private let persistenceKey = "geminichatbot.chatstore.v1"
+    private let userDefaults: UserDefaults
+
     @Published private(set) var conversations: [Conversation]
     @Published private var messagesByConversationID: [UUID: [ChatMessage]] = [:]
     @Published private(set) var dictionaryEntries: [DictionaryEntry] = []
     @Published private(set) var dictionaryCategories: [DictionaryCategory] = []
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
 
-    init(conversations: [Conversation] = SampleData.conversations) {
+    init(conversations: [Conversation] = SampleData.conversations, userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         self.conversations = conversations
         for conversation in conversations {
             messagesByConversationID[conversation.id] = SampleData.initialMessages(for: conversation.name)
         }
+        loadPersistedState()
     }
 
     func messages(for conversation: Conversation) -> [ChatMessage] {
@@ -26,14 +52,31 @@ final class ChatStore: ObservableObject {
 
         appendMessage(ChatMessage(role: .user, text: trimmed, timeText: currentTimeText()), to: conversation)
         updateConversationPreview(for: conversation, lastMessage: trimmed, unreadCount: 0)
+        persistState()
 
-        let reply = "Got it. That sounds good. Can you tell me a little more?"
-        appendMessage(ChatMessage(role: .ai, text: reply, timeText: currentTimeText()), to: conversation)
-        updateConversationPreview(for: conversation, lastMessage: reply, unreadCount: 0)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let reply = try await BackendAPIClient.shared.chatReply(message: trimmed)
+                await MainActor.run {
+                    self.appendMessage(ChatMessage(role: .ai, text: reply, timeText: self.currentTimeText()), to: conversation)
+                    self.updateConversationPreview(for: conversation, lastMessage: reply, unreadCount: 0)
+                    self.persistState()
+                }
+            } catch {
+                await MainActor.run {
+                    let fallback = "잠시 오류가 있었어요. 한 번만 더 말해줄래?"
+                    self.appendMessage(ChatMessage(role: .ai, text: fallback, timeText: self.currentTimeText()), to: conversation)
+                    self.updateConversationPreview(for: conversation, lastMessage: fallback, unreadCount: 0)
+                    self.persistState()
+                }
+            }
+        }
     }
 
     func markConversationOpened(_ conversation: Conversation) {
         updateConversationPreview(for: conversation, lastMessage: conversation.lastMessage, unreadCount: 0, keepMessage: true)
+        persistState()
     }
 
     func saveNativeAlternative(_ item: NativeAlternativeItem, originalText: String, categoryIDs: [UUID] = []) -> Bool {
@@ -52,6 +95,7 @@ final class ChatStore: ObservableObject {
             categoryIDs: categoryIDs
         )
         dictionaryEntries.insert(entry, at: 0)
+        persistState()
         return true
     }
 
@@ -85,26 +129,20 @@ final class ChatStore: ObservableObject {
     }
 
     func createDictionaryCategory(named rawName: String) -> DictionaryCategory? {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return nil }
-        guard !dictionaryCategories.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
-            return nil
-        }
+        guard let name = validatedCategoryName(rawName, excluding: nil) else { return nil }
         let category = DictionaryCategory(name: name)
         dictionaryCategories.append(category)
         dictionaryCategories.sort { $0.createdAt < $1.createdAt }
+        persistState()
         return category
     }
 
     func renameDictionaryCategory(id: UUID, to rawName: String) -> Bool {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return false }
+        guard let name = validatedCategoryName(rawName, excluding: id) else { return false }
         guard let index = dictionaryCategories.firstIndex(where: { $0.id == id }) else { return false }
-        guard !dictionaryCategories.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
-            return false
-        }
         let current = dictionaryCategories[index]
         dictionaryCategories[index] = DictionaryCategory(id: current.id, name: name, createdAt: current.createdAt)
+        persistState()
         return true
     }
 
@@ -127,6 +165,7 @@ final class ChatStore: ObservableObject {
         if case .category(let selectedID) = selectedDictionaryCategoryFilter, selectedID == id {
             selectedDictionaryCategoryFilter = .all
         }
+        persistState()
     }
 
     func setCategories(_ categoryIDs: [UUID], for entryID: UUID) {
@@ -144,10 +183,12 @@ final class ChatStore: ObservableObject {
             createdAt: entry.createdAt,
             categoryIDs: uniqueIDs
         )
+        persistState()
     }
 
     func deleteDictionaryEntry(_ entryID: UUID) {
         dictionaryEntries.removeAll { $0.id == entryID }
+        persistState()
     }
 
     func setDictionaryCategoryFilter(_ filter: DictionaryCategoryFilter) {
@@ -174,6 +215,15 @@ final class ChatStore: ObservableObject {
         case .category(let id):
             return dictionaryEntries.filter { $0.categoryIDs.contains(id) }.count
         }
+    }
+
+    func validateDictionaryCategoryName(_ rawName: String, excluding id: UUID? = nil) -> CategoryNameValidationError? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return .empty }
+        if dictionaryCategories.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            return .duplicate
+        }
+        return nil
     }
 
     private func appendMessage(_ message: ChatMessage, to conversation: Conversation) {
@@ -207,5 +257,40 @@ final class ChatStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
             .lowercased()
+    }
+
+    private func validatedCategoryName(_ rawName: String, excluding id: UUID?) -> String? {
+        if validateDictionaryCategoryName(rawName, excluding: id) != nil {
+            return nil
+        }
+        return rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func loadPersistedState() {
+        guard let data = userDefaults.data(forKey: persistenceKey) else { return }
+        do {
+            let decoded = try JSONDecoder().decode(PersistedState.self, from: data)
+            conversations = decoded.conversations
+            messagesByConversationID = decoded.messagesByConversationID
+            dictionaryEntries = decoded.dictionaryEntries
+            dictionaryCategories = decoded.dictionaryCategories
+        } catch {
+            print("ChatStore persistence load failed:", error)
+        }
+    }
+
+    private func persistState() {
+        let snapshot = PersistedState(
+            conversations: conversations,
+            messagesByConversationID: messagesByConversationID,
+            dictionaryEntries: dictionaryEntries,
+            dictionaryCategories: dictionaryCategories
+        )
+        do {
+            let data = try JSONEncoder().encode(snapshot)
+            userDefaults.set(data, forKey: persistenceKey)
+        } catch {
+            print("ChatStore persistence save failed:", error)
+        }
     }
 }

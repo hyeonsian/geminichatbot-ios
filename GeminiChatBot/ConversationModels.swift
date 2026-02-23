@@ -1,6 +1,6 @@
 import Foundation
 
-struct Conversation: Identifiable, Hashable {
+struct Conversation: Identifiable, Hashable, Codable {
     let id: UUID
     let name: String
     let lastMessage: String
@@ -25,19 +25,26 @@ struct Conversation: Identifiable, Hashable {
     }
 }
 
-struct ChatMessage: Identifiable, Hashable {
-    let id = UUID()
+struct ChatMessage: Identifiable, Hashable, Codable {
+    let id: UUID
     let role: ChatRole
     let text: String
     let timeText: String
 
-    enum ChatRole: Hashable {
+    enum ChatRole: String, Hashable, Codable {
         case user
         case ai
     }
+
+    init(id: UUID = UUID(), role: ChatRole, text: String, timeText: String) {
+        self.id = id
+        self.role = role
+        self.text = text
+        self.timeText = timeText
+    }
 }
 
-struct DictionaryEntry: Identifiable, Hashable {
+struct DictionaryEntry: Identifiable, Hashable, Codable {
     let id: UUID
     let kind: EntryKind
     let text: String
@@ -47,7 +54,7 @@ struct DictionaryEntry: Identifiable, Hashable {
     let createdAt: Date
     let categoryIDs: [UUID]
 
-    enum EntryKind: String, Hashable {
+    enum EntryKind: String, Hashable, Codable {
         case native
         case grammar
 
@@ -80,7 +87,7 @@ struct DictionaryEntry: Identifiable, Hashable {
     }
 }
 
-struct DictionaryCategory: Identifiable, Hashable {
+struct DictionaryCategory: Identifiable, Hashable, Codable {
     let id: UUID
     let name: String
     let createdAt: Date
@@ -101,6 +108,7 @@ enum DictionaryCategoryFilter: Hashable {
 enum SampleData {
     static let conversations: [Conversation] = [
         Conversation(
+            id: UUID(uuidString: "E6A5E58E-908B-4C69-A53B-3B1A8AC6C001")!,
             name: "Cat",
             lastMessage: "Hey there! I was wondering when you'd show up.",
             timeText: "13:27",
@@ -108,6 +116,7 @@ enum SampleData {
             avatarText: "C"
         ),
         Conversation(
+            id: UUID(uuidString: "E6A5E58E-908B-4C69-A53B-3B1A8AC6C002")!,
             name: "English Coach",
             lastMessage: "Try saying it a little more naturally.",
             timeText: "12:41",
@@ -115,6 +124,7 @@ enum SampleData {
             avatarText: "E"
         ),
         Conversation(
+            id: UUID(uuidString: "E6A5E58E-908B-4C69-A53B-3B1A8AC6C003")!,
             name: "Practice Buddy",
             lastMessage: "What did you do today?",
             timeText: "11:18",
