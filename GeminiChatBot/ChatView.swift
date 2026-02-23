@@ -28,7 +28,7 @@ struct ChatView: View {
                                 VStack(spacing: 8) {
                                     if isSelectedUserMessage, let state = feedbackStates[message.id] {
                                         HStack {
-                                            Spacer(minLength: 38)
+                                            Spacer(minLength: 54)
                                             UserMessageFeedbackCard(
                                                 originalText: message.text,
                                                 state: state,
@@ -37,7 +37,7 @@ struct ChatView: View {
                                                     openNativeAlternatives(for: message)
                                                 }
                                             )
-                                            .frame(maxWidth: 340, alignment: .trailing)
+                                            .frame(maxWidth: 320, alignment: .trailing)
                                             .contentShape(Rectangle())
                                             .onTapGesture {
                                                 handleMessageTap(message)
@@ -302,6 +302,25 @@ private struct UserMessageFeedbackCard: View {
             sectionLabel("NATIVE FEEDBACK")
             feedbackBody
 
+            if case let .loaded(data) = state,
+               let improved = improvedExpression(from: data),
+               !improved.isEmpty {
+                sectionLabel("IMPROVED EXPRESSION")
+                Text(improved)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.blue.opacity(0.12), lineWidth: 1)
+                    )
+            }
+
             nativeAlternativesButton
         }
         .padding(12)
@@ -527,9 +546,12 @@ private struct UserMessageFeedbackCard: View {
                 Text("→")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Text((point.fix ?? "").isEmpty ? "(improve)" : (point.fix ?? ""))
+                Text(feedbackFixPreview(for: point))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.green)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
             }
             if let issue = point.issue, !issue.isEmpty {
                 Text(issue)
@@ -543,6 +565,129 @@ private struct UserMessageFeedbackCard: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(uiColor: .tertiarySystemBackground))
         )
+    }
+
+    private func feedbackFixPreview(for point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> String {
+        let raw = (point.fix ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalized = normalizedReplacement(from: raw, part: point.part) {
+            return normalized
+        }
+        return raw.isEmpty ? "(improve)" : raw
+    }
+
+    private func improvedExpression(from data: GrammarFeedbackResponse) -> String? {
+        let source = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return nil }
+
+        var candidates: [String] = []
+
+        if data.hasErrors {
+            let corrected = data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !corrected.isEmpty && !isMinorSentenceDifference(source, corrected) {
+                candidates.append(corrected)
+            }
+        }
+
+        let viaEdits = applyEdits(source, edits: data.edits)
+        let viaPoints = applyFeedbackPoints(viaEdits, points: data.feedbackPoints)
+        if !viaPoints.isEmpty && !isMinorSentenceDifference(source, viaPoints) {
+            candidates.append(viaPoints)
+        }
+
+        let naturalRewrite = data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !naturalRewrite.isEmpty && !isMinorSentenceDifference(source, naturalRewrite) {
+            candidates.append(naturalRewrite)
+        }
+
+        let naturalAlternative = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !naturalAlternative.isEmpty && !isMinorSentenceDifference(source, naturalAlternative) {
+            candidates.append(naturalAlternative)
+        }
+
+        var seen = Set<String>()
+        for item in candidates {
+            let key = normalizedTextKey(item)
+            if key.isEmpty || seen.contains(key) { continue }
+            seen.insert(key)
+            return item
+        }
+        return nil
+    }
+
+    private func applyEdits(_ source: String, edits: [GrammarFeedbackResponse.GrammarEdit]) -> String {
+        var text = source
+        let sorted = edits.sorted { $0.wrong.count > $1.wrong.count }
+        for edit in sorted {
+            let wrong = edit.wrong.trimmingCharacters(in: .whitespacesAndNewlines)
+            let right = edit.right.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wrong.isEmpty, !right.isEmpty else { continue }
+            text = replacingFirstCaseInsensitive(in: text, target: wrong, replacement: right)
+        }
+        return text
+    }
+
+    private func applyFeedbackPoints(_ source: String, points: [GrammarFeedbackResponse.GrammarFeedbackPoint]) -> String {
+        var text = source
+        let sorted = points.sorted { $0.part.count > $1.part.count }
+        for point in sorted {
+            let part = point.part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !part.isEmpty else { continue }
+            guard let replacement = normalizedReplacement(from: point.fix ?? "", part: part) else { continue }
+            if normalizedTextKey(replacement).isEmpty { continue }
+            text = replacingFirstCaseInsensitive(in: text, target: part, replacement: replacement)
+        }
+        return text
+    }
+
+    private func normalizedReplacement(from rawFix: String, part: String) -> String? {
+        let raw = rawFix.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return nil }
+
+        if let addQuoted = firstQuotedPhrase(in: raw, afterPrefix: "add") {
+            let merged = "\(part) \(addQuoted)".replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            return merged.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let useQuoted = firstQuotedPhrase(in: raw, afterPrefix: "use") {
+            return useQuoted
+        }
+
+        if raw.count <= 36 {
+            return raw
+        }
+        return nil
+    }
+
+    private func firstQuotedPhrase(in text: String, afterPrefix prefix: String) -> String? {
+        let pattern = "(?i)\\b" + NSRegularExpression.escapedPattern(for: prefix) + "\\b\\s+['\\\"]([^'\\\"]+)['\\\"]"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        guard let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 else { return nil }
+        let quoted = (text as NSString).substring(with: match.range(at: 1))
+        return quoted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func replacingFirstCaseInsensitive(in source: String, target: String, replacement: String) -> String {
+        guard !target.isEmpty else { return source }
+        let escaped = NSRegularExpression.escapedPattern(for: target)
+        guard let regex = try? NSRegularExpression(pattern: escaped, options: [.caseInsensitive]) else { return source }
+        let range = NSRange(location: 0, length: (source as NSString).length)
+        guard let match = regex.firstMatch(in: source, options: [], range: range) else { return source }
+        let ns = source as NSString
+        let result = ns.replacingCharacters(in: match.range, with: replacement)
+        return result
+    }
+
+    private func normalizedTextKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .lowercased()
+    }
+
+    private func isMinorSentenceDifference(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedTextKey(lhs) == normalizedTextKey(rhs)
     }
 }
 
@@ -671,6 +816,10 @@ private struct NativeAlternativesSheet: View {
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.blue.opacity(0.10), lineWidth: 1)
                     )
                 }
             }

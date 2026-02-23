@@ -106,6 +106,10 @@ private struct DictionaryEntryCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemBackground))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.blue.opacity(0.08), lineWidth: 1)
+        )
     }
 
     private static let timestampFormatter: DateFormatter = {
