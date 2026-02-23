@@ -215,6 +215,8 @@ struct ChatView: View {
 
             Button(action: { showProfileEditor = true }) {
                 VStack(spacing: 2) {
+                    headerAvatar
+
                     Text(currentAIProfile.name)
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.primary)
@@ -242,6 +244,32 @@ struct ChatView: View {
         .padding(.vertical, 10)
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    @ViewBuilder
+    private var headerAvatar: some View {
+        if let data = currentAIProfile.avatarImageData, let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 42, height: 42)
+                .clipShape(Circle())
+        } else {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue.opacity(0.45), Color.indigo.opacity(0.65)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Text(String((currentAIProfile.name.trimmingCharacters(in: .whitespacesAndNewlines).first ?? "A")).uppercased())
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 42, height: 42)
+        }
     }
 
     private var currentAIProfile: AIProfileSettings {

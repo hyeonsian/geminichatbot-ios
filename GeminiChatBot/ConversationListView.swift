@@ -21,7 +21,10 @@ struct ConversationListView: View {
                                     ChatView(conversation: conversation)
                                         .environmentObject(chatStore)
                                 } label: {
-                                    ConversationRow(conversation: conversation)
+                                    ConversationRow(
+                                        conversation: conversation,
+                                        aiProfile: chatStore.aiProfile(for: conversation)
+                                    )
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -121,24 +124,11 @@ struct ConversationListView: View {
 
 private struct ConversationRow: View {
     let conversation: Conversation
+    let aiProfile: AIProfileSettings
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.blue.opacity(0.45), Color.indigo.opacity(0.65)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 54, height: 54)
-
-                Text(conversation.avatarText)
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
-            }
+            conversationAvatar
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(conversation.name)
@@ -178,6 +168,33 @@ private struct ConversationRow: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(uiColor: .systemBackground))
         )
+    }
+
+    @ViewBuilder
+    private var conversationAvatar: some View {
+        if let data = aiProfile.avatarImageData, let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 54, height: 54)
+                .clipShape(Circle())
+        } else {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue.opacity(0.45), Color.indigo.opacity(0.65)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 54, height: 54)
+
+                Text(conversation.avatarText)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
     }
 }
 
