@@ -37,6 +37,12 @@ struct NativeAlternativeItem: Decodable, Hashable, Identifiable {
     let tone: String
     let nuance: String
 
+    init(text: String, tone: String, nuance: String) {
+        self.text = text
+        self.tone = tone
+        self.nuance = nuance
+    }
+
     private enum CodingKeys: String, CodingKey {
         case text, tone, nuance
     }

@@ -24,19 +24,9 @@ struct ChatView: View {
                     ScrollView {
                         LazyVStack(spacing: 10) {
                             ForEach(chatStore.messages(for: conversation)) { message in
+                                let isSelectedUserMessage = message.role == .user && selectedUserMessageID == message.id
                                 VStack(spacing: 8) {
-                                    MessageBubbleView(
-                                        message: message,
-                                        isSelected: message.role == .user && selectedUserMessageID == message.id
-                                    )
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        handleMessageTap(message)
-                                    }
-
-                                    if message.role == .user,
-                                       selectedUserMessageID == message.id,
-                                       let state = feedbackStates[message.id] {
+                                    if isSelectedUserMessage, let state = feedbackStates[message.id] {
                                         UserMessageFeedbackCard(
                                             originalText: message.text,
                                             state: state,
@@ -45,7 +35,20 @@ struct ChatView: View {
                                                 openNativeAlternatives(for: message)
                                             }
                                         )
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            handleMessageTap(message)
+                                        }
                                         .transition(.opacity.combined(with: .move(edge: .top)))
+                                    } else {
+                                        MessageBubbleView(
+                                            message: message,
+                                            isSelected: false
+                                        )
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            handleMessageTap(message)
+                                        }
                                     }
                                 }
                                 .id(message.id)
@@ -213,8 +216,10 @@ struct ChatView: View {
         Task {
             do {
                 let items = try await BackendAPIClient.shared.nativeAlternatives(text: message.text)
+                let preferred = preferredNativeAlternative(from: feedbackStates[message.id])
+                let merged = mergeNativeAlternatives(items, preferred: preferred)
                 await MainActor.run {
-                    nativeAlternativesStates[message.id] = .loaded(items)
+                    nativeAlternativesStates[message.id] = .loaded(merged)
                 }
             } catch {
                 await MainActor.run {
@@ -222,6 +227,41 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    private func preferredNativeAlternative(from state: UserMessageFeedbackState?) -> NativeAlternativeItem? {
+        guard case let .some(.loaded(data)) = state else { return nil }
+        let text = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let nuance = data.naturalReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return NativeAlternativeItem(
+            text: text,
+            tone: "Most Common",
+            nuance: nuance.isEmpty ? "Simple everyday phrasing" : nuance
+        )
+    }
+
+    private func mergeNativeAlternatives(
+        _ items: [NativeAlternativeItem],
+        preferred: NativeAlternativeItem?
+    ) -> [NativeAlternativeItem] {
+        var merged: [NativeAlternativeItem] = []
+        var seen = Set<String>()
+
+        func appendIfNeeded(_ item: NativeAlternativeItem?) {
+            guard let item else { return }
+            let key = item.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+                .lowercased()
+            guard !key.isEmpty, !seen.contains(key) else { return }
+            seen.insert(key)
+            merged.append(item)
+        }
+
+        appendIfNeeded(preferred)
+        items.forEach { appendIfNeeded($0) }
+        return Array(merged.prefix(3))
     }
 }
 
@@ -251,42 +291,6 @@ private struct UserMessageFeedbackCard: View {
 
             sectionLabel("NATIVE FEEDBACK")
             feedbackBody
-
-            if case let .loaded(data) = state,
-               data.hasErrors,
-               !data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                sectionLabel("CORRECTED SENTENCE")
-                Text(data.correctedText)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color(uiColor: .secondarySystemBackground))
-                    )
-            }
-
-            if case let .loaded(data) = state,
-               !data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                sectionLabel("MORE NATURAL WAY")
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(data.naturalAlternative)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    if !data.naturalReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(data.naturalReason)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemBackground))
-                )
-            }
 
             nativeAlternativesButton
         }
@@ -420,23 +424,6 @@ private struct UserMessageFeedbackCard: View {
                     )
                 }
 
-                if !data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Natural rewrite")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                        Text(data.naturalRewrite)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.primary)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color(uiColor: .secondarySystemBackground))
-                    )
-                }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
