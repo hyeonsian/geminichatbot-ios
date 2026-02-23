@@ -20,6 +20,7 @@ struct MessageBubbleView: View {
             if message.role == .ai {
                 HStack(alignment: .center, spacing: 6) {
                     bubble
+                        .frame(maxWidth: 290, alignment: .leading)
                     if let onTapTranslate {
                         translateButton(action: onTapTranslate)
                     }
@@ -148,7 +149,6 @@ struct MessageBubbleView: View {
             Text(attributed)
                 .font(.system(size: 18))
                 .multilineTextAlignment(message.role == .ai ? .leading : .trailing)
-                .frame(maxWidth: bubbleContentMaxWidth, alignment: message.role == .ai ? .leading : .trailing)
                 .fixedSize(horizontal: false, vertical: true)
                 .background(primaryTextWidthReader)
         } else {
@@ -156,7 +156,6 @@ struct MessageBubbleView: View {
                 .font(.system(size: 18))
                 .foregroundStyle(message.role == .ai ? Color.primary : Color.white)
                 .multilineTextAlignment(message.role == .ai ? .leading : .trailing)
-                .frame(maxWidth: bubbleContentMaxWidth, alignment: message.role == .ai ? .leading : .trailing)
                 .fixedSize(horizontal: false, vertical: true)
                 .background(primaryTextWidthReader)
         }
