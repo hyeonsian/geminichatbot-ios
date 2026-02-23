@@ -86,6 +86,12 @@ private struct ChatRequest: Encodable {
     let model: String?
 }
 
+private struct TTSRequest: Encodable {
+    let text: String
+    let voiceName: String?
+    let style: String?
+}
+
 enum BackendAPIError: LocalizedError {
     case invalidURL
     case invalidResponse
@@ -150,6 +156,11 @@ final class BackendAPIClient {
         return trimmed
     }
 
+    func ttsAudio(text: String, voiceName: String? = nil, style: String? = nil) async throws -> Data {
+        let req = TTSRequest(text: text, voiceName: voiceName, style: style)
+        return try await postRaw(path: "/api/tts", body: req, expectedContentTypePrefix: "audio/")
+    }
+
     private func post<Request: Encodable, Response: Decodable>(
         path: String,
         body: Request,
@@ -175,5 +186,41 @@ final class BackendAPIClient {
         }
 
         return try decoder.decode(responseType, from: data)
+    }
+
+    private func postRaw<Request: Encodable>(
+        path: String,
+        body: Request,
+        expectedContentTypePrefix: String? = nil
+    ) async throws -> Data {
+        guard let url = URL(string: baseURLString + path) else {
+            throw BackendAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let backendError = try? decoder.decode(BackendErrorResponse.self, from: data)
+            throw BackendAPIError.httpStatus(http.statusCode, backendError?.error ?? "Unknown error")
+        }
+
+        if let prefix = expectedContentTypePrefix?.lowercased(),
+           let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased(),
+           !contentType.hasPrefix(prefix) {
+            throw BackendAPIError.invalidResponse
+        }
+
+        if data.isEmpty {
+            throw BackendAPIError.emptyResponse
+        }
+        return data
     }
 }

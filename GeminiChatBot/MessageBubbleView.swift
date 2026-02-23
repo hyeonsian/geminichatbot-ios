@@ -11,6 +11,9 @@ struct MessageBubbleView: View {
     var translationError: String? = nil
     var isTranslationLoading: Bool = false
     var onTapTranslate: (() -> Void)? = nil
+    var onTapSpeak: (() -> Void)? = nil
+    var isSpeechLoading: Bool = false
+    var isSpeaking: Bool = false
     @State private var aiPrimaryTextWidth: CGFloat = 0
 
     private let bubbleContentMaxWidth: CGFloat = 262
@@ -18,11 +21,12 @@ struct MessageBubbleView: View {
     var body: some View {
         HStack {
             if message.role == .ai {
-                HStack(alignment: .center, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
                     bubble
                         .frame(maxWidth: 290, alignment: .leading)
-                    if let onTapTranslate {
-                        translateButton(action: onTapTranslate)
+                    if hasAIActionButtons {
+                        aiActionButtons
+                            .padding(.leading, 4)
                     }
                 }
                 Spacer(minLength: 34)
@@ -103,17 +107,62 @@ struct MessageBubbleView: View {
     }
 
     private func translateButton(action: @escaping () -> Void) -> some View {
+        actionCircleButton(
+            tint: translateButtonTint,
+            isLoading: isTranslationLoading,
+            systemImage: "globe",
+            action: action
+        )
+    }
+
+    private var translateButtonTint: Color {
+        if translationError != nil { return .red }
+        if translatedText != nil { return .green }
+        return .blue
+    }
+
+    private var hasAIActionButtons: Bool {
+        onTapTranslate != nil || onTapSpeak != nil
+    }
+
+    @ViewBuilder
+    private var aiActionButtons: some View {
+        HStack(spacing: 8) {
+            if let onTapTranslate {
+                translateButton(action: onTapTranslate)
+            }
+            if let onTapSpeak {
+                speechButton(action: onTapSpeak)
+            }
+        }
+    }
+
+    private func speechButton(action: @escaping () -> Void) -> some View {
+        actionCircleButton(
+            tint: isSpeaking ? .green : .blue,
+            isLoading: isSpeechLoading,
+            systemImage: isSpeaking ? "stop.fill" : "speaker.wave.2.fill",
+            action: action
+        )
+    }
+
+    private func actionCircleButton(
+        tint: Color,
+        isLoading: Bool,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Group {
-                if isTranslationLoading {
+                if isLoading {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(systemName: "globe")
+                    Image(systemName: systemImage)
                         .font(.system(size: 12, weight: .semibold))
                 }
             }
-            .foregroundStyle(translateButtonTint)
+            .foregroundStyle(tint)
             .frame(width: 24, height: 24)
             .background(
                 Circle()
@@ -121,18 +170,10 @@ struct MessageBubbleView: View {
             )
             .overlay(
                 Circle()
-                    .stroke(translateButtonTint.opacity(0.18), lineWidth: 1)
+                    .stroke(tint.opacity(0.18), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-        .padding(.leading, 2)
-        .padding(.top, 2)
-    }
-
-    private var translateButtonTint: Color {
-        if translationError != nil { return .red }
-        if translatedText != nil { return .green }
-        return .blue
     }
 
     private var translationContentWidth: CGFloat {

@@ -1,5 +1,19 @@
 import SwiftUI
 import UIKit
+import AVFoundation
+
+private final class ChatAudioPlayerDelegateProxy: NSObject, AVAudioPlayerDelegate {
+    var onFinish: (() -> Void)?
+    var onDecodeError: (() -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish?()
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        onDecodeError?()
+    }
+}
 
 struct ChatView: View {
     let conversation: Conversation
@@ -12,6 +26,11 @@ struct ChatView: View {
     @State private var nativeAlternativesStates: [UUID: NativeAlternativesLoadState] = [:]
     @State private var nativeAlternativesSheetMessage: ChatMessage?
     @State private var aiTranslationStates: [UUID: AIMessageTranslationState] = [:]
+    @State private var aiSpeechLoadingMessageIDs: Set<UUID> = []
+    @State private var activeAISpeechMessageID: UUID?
+    @State private var aiSpeechAudioCache: [UUID: Data] = [:]
+    @State private var aiSpeechPlayer: AVAudioPlayer?
+    @State private var audioPlayerDelegateProxy = ChatAudioPlayerDelegateProxy()
     @State private var isSearchVisible = false
     @State private var searchQuery = ""
     @State private var selectedSearchResultIndex = 0
@@ -76,6 +95,9 @@ struct ChatView: View {
             inputBar
         }
         .toolbar(.hidden, for: .navigationBar)
+        .onDisappear {
+            stopAISpeechPlayback()
+        }
         .sheet(item: $nativeAlternativesSheetMessage) { message in
             NativeAlternativesSheet(
                 originalText: message.text,
@@ -285,7 +307,10 @@ struct ChatView: View {
                     translatedText: translationVisibleText(for: message),
                     translationError: translationErrorText(for: message),
                     isTranslationLoading: isTranslationLoading(for: message),
-                    onTapTranslate: message.role == .ai ? { toggleAITranslation(for: message) } : nil
+                    onTapTranslate: message.role == .ai ? { toggleAITranslation(for: message) } : nil,
+                    onTapSpeak: message.role == .ai ? { toggleAISpeech(for: message) } : nil,
+                    isSpeechLoading: isAISpeechLoading(for: message),
+                    isSpeaking: isAISpeaking(for: message)
                 )
             }
         }
@@ -343,6 +368,80 @@ struct ChatView: View {
         }
     }
 
+    private func toggleAISpeech(for message: ChatMessage) {
+        guard message.role == .ai else { return }
+
+        if activeAISpeechMessageID == message.id {
+            stopAISpeechPlayback()
+            return
+        }
+
+        stopAISpeechPlayback()
+
+        if let cached = aiSpeechAudioCache[message.id] {
+            playAISpeechAudio(cached, for: message.id)
+            return
+        }
+
+        aiSpeechLoadingMessageIDs.insert(message.id)
+        Task {
+            do {
+                let audioData = try await BackendAPIClient.shared.ttsAudio(
+                    text: message.text,
+                    voiceName: nil,
+                    style: "Read this naturally like a friendly native English speaker in a casual chat."
+                )
+                await MainActor.run {
+                    aiSpeechLoadingMessageIDs.remove(message.id)
+                    aiSpeechAudioCache[message.id] = audioData
+                    playAISpeechAudio(audioData, for: message.id)
+                }
+            } catch {
+                await MainActor.run {
+                    aiSpeechLoadingMessageIDs.remove(message.id)
+                    activeAISpeechMessageID = nil
+                }
+                print("TTS playback error:", error.localizedDescription)
+            }
+        }
+    }
+
+    private func playAISpeechAudio(_ data: Data, for messageID: UUID) {
+        do {
+            let player = try AVAudioPlayer(data: data)
+            audioPlayerDelegateProxy.onFinish = { [messageID] in
+                Task { @MainActor in
+                    if activeAISpeechMessageID == messageID {
+                        activeAISpeechMessageID = nil
+                        aiSpeechPlayer = nil
+                    }
+                }
+            }
+            audioPlayerDelegateProxy.onDecodeError = {
+                Task { @MainActor in
+                    activeAISpeechMessageID = nil
+                    aiSpeechPlayer = nil
+                }
+            }
+            player.delegate = audioPlayerDelegateProxy
+            player.prepareToPlay()
+            activeAISpeechMessageID = messageID
+            aiSpeechPlayer = player
+            _ = player.play()
+        } catch {
+            activeAISpeechMessageID = nil
+            aiSpeechPlayer = nil
+            print("AVAudioPlayer init failed:", error.localizedDescription)
+        }
+    }
+
+    private func stopAISpeechPlayback() {
+        aiSpeechPlayer?.stop()
+        aiSpeechPlayer?.delegate = nil
+        aiSpeechPlayer = nil
+        activeAISpeechMessageID = nil
+    }
+
     private func isTranslationLoading(for message: ChatMessage) -> Bool {
         guard message.role == .ai else { return false }
         if case .loading = aiTranslationStates[message.id] { return true }
@@ -363,6 +462,16 @@ struct ChatView: View {
             return text
         }
         return nil
+    }
+
+    private func isAISpeechLoading(for message: ChatMessage) -> Bool {
+        guard message.role == .ai else { return false }
+        return aiSpeechLoadingMessageIDs.contains(message.id)
+    }
+
+    private func isAISpeaking(for message: ChatMessage) -> Bool {
+        guard message.role == .ai else { return false }
+        return activeAISpeechMessageID == message.id
     }
 
     private func handleMessageTap(_ message: ChatMessage) {
