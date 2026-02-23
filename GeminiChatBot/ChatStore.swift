@@ -9,6 +9,7 @@ final class ChatStore: ObservableObject {
         let dictionaryEntries: [DictionaryEntry]
         let dictionaryCategories: [DictionaryCategory]
         let aiProfilesByConversationID: [UUID: AIProfileSettings]?
+        let conversationMemoryByConversationID: [UUID: String]?
     }
 
     enum CategoryNameValidationError: LocalizedError {
@@ -33,6 +34,7 @@ final class ChatStore: ObservableObject {
     @Published private(set) var dictionaryEntries: [DictionaryEntry] = []
     @Published private(set) var dictionaryCategories: [DictionaryCategory] = []
     @Published private(set) var aiProfilesByConversationID: [UUID: AIProfileSettings] = [:]
+    @Published private(set) var conversationMemoryByConversationID: [UUID: String] = [:]
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
 
     init(conversations: [Conversation] = SampleData.conversations, userDefaults: UserDefaults = .standard) {
@@ -58,18 +60,21 @@ final class ChatStore: ObservableObject {
         updateConversationPreview(for: conversation, lastMessage: trimmed, unreadCount: 0)
         persistState()
         let recentHistory = recentChatHistoryForBackend(in: conversation.id, excludingLatestUserMessage: true)
+        let currentMemorySummary = conversationMemoryByConversationID[conversation.id] ?? ""
 
         Task { [weak self] in
             guard let self else { return }
             do {
                 let reply = try await BackendAPIClient.shared.chatReply(
                     message: trimmed,
-                    history: recentHistory
+                    history: recentHistory,
+                    memorySummary: currentMemorySummary
                 )
                 await MainActor.run {
                     self.appendMessage(ChatMessage(role: .ai, text: reply, timeText: self.currentTimeText()), to: conversation)
                     self.updateConversationPreview(for: conversation, lastMessage: reply, unreadCount: 0)
                     self.persistState()
+                    self.refreshConversationMemorySummary(for: conversation.id)
                 }
             } catch {
                 await MainActor.run {
@@ -85,6 +90,10 @@ final class ChatStore: ObservableObject {
     func markConversationOpened(_ conversation: Conversation) {
         updateConversationPreview(for: conversation, lastMessage: conversation.lastMessage, unreadCount: 0, keepMessage: true)
         persistState()
+    }
+
+    func conversationMemorySummary(for conversationID: UUID) -> String {
+        conversationMemoryByConversationID[conversationID] ?? ""
     }
 
     func saveNativeAlternative(_ item: NativeAlternativeItem, originalText: String, categoryIDs: [UUID] = []) -> Bool {
@@ -331,7 +340,8 @@ final class ChatStore: ObservableObject {
 
     private func recentChatHistoryForBackend(
         in conversationID: UUID,
-        excludingLatestUserMessage: Bool
+        excludingLatestUserMessage: Bool,
+        limit: Int = 12
     ) -> [BackendChatHistoryItem] {
         var messages = messagesByConversationID[conversationID] ?? []
         if excludingLatestUserMessage,
@@ -341,7 +351,7 @@ final class ChatStore: ObservableObject {
         }
 
         return messages
-            .suffix(12)
+            .suffix(limit)
             .compactMap { message in
                 let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return nil }
@@ -350,6 +360,38 @@ final class ChatStore: ObservableObject {
                     text: trimmed
                 )
             }
+    }
+
+    private func refreshConversationMemorySummary(for conversationID: UUID) {
+        let history = recentChatHistoryForBackend(
+            in: conversationID,
+            excludingLatestUserMessage: false,
+            limit: 20
+        )
+        guard !history.isEmpty else { return }
+
+        let currentSummary = conversationMemoryByConversationID[conversationID] ?? ""
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await BackendAPIClient.shared.updateMemorySummary(
+                    currentSummary: currentSummary,
+                    history: history
+                )
+                await MainActor.run {
+                    let normalized = updated.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard normalized != currentSummary else { return }
+                    if normalized.isEmpty {
+                        self.conversationMemoryByConversationID.removeValue(forKey: conversationID)
+                    } else {
+                        self.conversationMemoryByConversationID[conversationID] = normalized
+                    }
+                    self.persistState()
+                }
+            } catch {
+                // Memory update failures should not interrupt the main chat flow.
+            }
+        }
     }
 
     private func validatedCategoryName(_ rawName: String, excluding id: UUID?) -> String? {
@@ -368,6 +410,7 @@ final class ChatStore: ObservableObject {
             dictionaryEntries = decoded.dictionaryEntries
             dictionaryCategories = decoded.dictionaryCategories
             aiProfilesByConversationID = decoded.aiProfilesByConversationID ?? [:]
+            conversationMemoryByConversationID = decoded.conversationMemoryByConversationID ?? [:]
         } catch {
             print("ChatStore persistence load failed:", error)
         }
@@ -380,6 +423,8 @@ final class ChatStore: ObservableObject {
             dictionaryEntries: dictionaryEntries,
             dictionaryCategories: dictionaryCategories,
             aiProfilesByConversationID: aiProfilesByConversationID
+            ,
+            conversationMemoryByConversationID: conversationMemoryByConversationID
         )
         do {
             let data = try JSONEncoder().encode(snapshot)

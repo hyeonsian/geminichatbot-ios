@@ -84,6 +84,7 @@ private struct TranslateRequest: Encodable {
 private struct ChatRequest: Encodable {
     let message: String
     let history: [BackendChatHistoryItem]?
+    let memorySummary: String?
     let model: String?
 }
 
@@ -96,6 +97,16 @@ private struct TTSRequest: Encodable {
     let text: String
     let voiceName: String?
     let style: String?
+}
+
+private struct MemorySummaryRequest: Encodable {
+    let currentSummary: String
+    let history: [BackendChatHistoryItem]
+    let model: String?
+}
+
+private struct MemorySummaryResponse: Decodable {
+    let memorySummary: String
 }
 
 enum BackendAPIError: LocalizedError {
@@ -157,17 +168,33 @@ final class BackendAPIClient {
     func chatReply(
         message: String,
         history: [BackendChatHistoryItem] = [],
+        memorySummary: String? = nil,
         model: String? = nil
     ) async throws -> String {
         let req = ChatRequest(
             message: message,
             history: history.isEmpty ? nil : history,
+            memorySummary: memorySummary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? memorySummary : nil,
             model: model
         )
         let response = try await post(path: "/api/chat", body: req, responseType: ChatResponse.self)
         let trimmed = response.reply.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { throw BackendAPIError.emptyResponse }
         return trimmed
+    }
+
+    func updateMemorySummary(
+        currentSummary: String,
+        history: [BackendChatHistoryItem],
+        model: String? = nil
+    ) async throws -> String {
+        let req = MemorySummaryRequest(
+            currentSummary: currentSummary,
+            history: history,
+            model: model
+        )
+        let response = try await post(path: "/api/memory-summary", body: req, responseType: MemorySummaryResponse.self)
+        return response.memorySummary.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func ttsAudio(text: String, voiceName: String? = nil, style: String? = nil) async throws -> Data {
