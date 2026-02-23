@@ -11,6 +11,9 @@ struct ChatView: View {
     @State private var feedbackStates: [UUID: UserMessageFeedbackState] = [:]
     @State private var nativeAlternativesStates: [UUID: NativeAlternativesLoadState] = [:]
     @State private var nativeAlternativesSheetMessage: ChatMessage?
+    @State private var isSearchVisible = false
+    @State private var searchQuery = ""
+    @State private var selectedSearchResultIndex = 0
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -19,55 +22,87 @@ struct ChatView: View {
 
             VStack(spacing: 0) {
                 header
-
                 ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(chatStore.messages(for: conversation)) { message in
+                    VStack(spacing: 0) {
+                        if isSearchVisible {
+                            searchBar(proxy: proxy)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
+                        ScrollView {
+                            LazyVStack(spacing: 10) {
+                                ForEach(chatStore.messages(for: conversation)) { message in
+                                    let matched = searchMatchMessageIDs.contains(message.id)
+                                    let activeMatched = selectedSearchMatchMessageID == message.id
                                 let isSelectedUserMessage = message.role == .user && selectedUserMessageID == message.id
-                                VStack(spacing: 8) {
-                                    if isSelectedUserMessage, let state = feedbackStates[message.id] {
-                                        HStack {
-                                            Spacer(minLength: 54)
-                                            UserMessageFeedbackCard(
-                                                originalText: message.text,
-                                                state: state,
-                                                nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
-                                                onTapNativeAlternatives: {
-                                                    openNativeAlternatives(for: message)
+                                    VStack(spacing: 8) {
+                                        if isSelectedUserMessage, let state = feedbackStates[message.id] {
+                                            HStack {
+                                                Spacer(minLength: 54)
+                                                UserMessageFeedbackCard(
+                                                    originalText: message.text,
+                                                    state: state,
+                                                    nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
+                                                    onTapNativeAlternatives: {
+                                                        openNativeAlternatives(for: message)
+                                                    }
+                                                )
+                                                .frame(maxWidth: 320, alignment: .trailing)
+                                                .contentShape(Rectangle())
+                                                .onTapGesture {
+                                                    handleMessageTap(message)
                                                 }
-                                            )
-                                            .frame(maxWidth: 320, alignment: .trailing)
-                                            .contentShape(Rectangle())
-                                            .onTapGesture {
-                                                handleMessageTap(message)
                                             }
+                                            .transition(.opacity.combined(with: .move(edge: .top)))
+                                        } else {
+                                            MessageBubbleView(
+                                                message: message,
+                                                isSelected: false,
+                                                highlightQuery: searchQuery,
+                                                isSearchMatched: matched,
+                                                isActiveSearchMatch: activeMatched
+                                            )
                                         }
-                                        .transition(.opacity.combined(with: .move(edge: .top)))
-                                    } else {
-                                        MessageBubbleView(
-                                            message: message,
-                                            isSelected: false
-                                        )
                                         .contentShape(Rectangle())
                                         .onTapGesture {
                                             handleMessageTap(message)
                                         }
                                     }
+                                    .id(message.id)
                                 }
-                                .id(message.id)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.top, 12)
+                            .padding(.bottom, 90)
+                        }
+                        .onAppear {
+                            chatStore.markConversationOpened(conversation)
+                            syncSearchSelection()
+                            scrollToBottom(proxy)
+                        }
+                        .onChange(of: chatStore.messages(for: conversation).map(\.id)) { _ in
+                            syncSearchSelection()
+                            if isSearchVisible, selectedSearchMatchMessageID != nil {
+                                scrollToSelectedSearchResult(proxy)
+                            } else {
+                                scrollToBottom(proxy)
                             }
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.top, 12)
-                        .padding(.bottom, 90)
-                    }
-                    .onAppear {
-                        chatStore.markConversationOpened(conversation)
-                        scrollToBottom(proxy)
-                    }
-                    .onChange(of: chatStore.messages(for: conversation).map(\.id)) { _ in
-                        scrollToBottom(proxy)
+                        .onChange(of: searchQuery) { _ in
+                            syncSearchSelection()
+                            if isSearchVisible {
+                                scrollToSelectedSearchResult(proxy)
+                            }
+                        }
+                        .onChange(of: isSearchVisible) { visible in
+                            if !visible {
+                                searchQuery = ""
+                                selectedSearchResultIndex = 0
+                            } else {
+                                syncSearchSelection()
+                                scrollToSelectedSearchResult(proxy)
+                            }
+                        }
                     }
                 }
             }
@@ -88,6 +123,85 @@ struct ChatView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var searchMatchMessageIDs: [UUID] {
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return chatStore.messages(for: conversation)
+            .filter { $0.text.localizedCaseInsensitiveContains(trimmed) }
+            .map(\.id)
+    }
+
+    private var selectedSearchMatchMessageID: UUID? {
+        guard !searchMatchMessageIDs.isEmpty else { return nil }
+        let safeIndex = min(max(selectedSearchResultIndex, 0), searchMatchMessageIDs.count - 1)
+        return searchMatchMessageIDs[safeIndex]
+    }
+
+    @ViewBuilder
+    private func searchBar(proxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    TextField("Search messages", text: $searchQuery)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .font(.system(size: 15))
+
+                    if !searchQuery.isEmpty {
+                        Button(action: {
+                            searchQuery = ""
+                            selectedSearchResultIndex = 0
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+
+                Text(searchResultCounterText)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 40)
+
+                Button(action: { moveSearchSelection(-1, proxy: proxy) }) {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(searchMatchMessageIDs.isEmpty ? .secondary : Color.blue)
+                        .frame(width: 28, height: 28)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(Circle())
+                }
+                .disabled(searchMatchMessageIDs.isEmpty)
+
+                Button(action: { moveSearchSelection(1, proxy: proxy) }) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(searchMatchMessageIDs.isEmpty ? .secondary : Color.blue)
+                        .frame(width: 28, height: 28)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(Circle())
+                }
+                .disabled(searchMatchMessageIDs.isEmpty)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+            .background(Color(uiColor: .systemBackground))
+
+            Divider()
         }
     }
 
@@ -119,6 +233,12 @@ struct ChatView: View {
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(Color.blue)
                     .frame(width: 28, height: 28)
+            }
+            .contentTransition(.symbolEffect(.replace))
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isSearchVisible.toggle()
+                }
             }
             .opacity(0.9)
         }
@@ -206,6 +326,40 @@ struct ChatView: View {
         DispatchQueue.main.async {
             withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(lastId, anchor: .bottom)
+            }
+        }
+    }
+
+    private var searchResultCounterText: String {
+        guard !searchMatchMessageIDs.isEmpty else { return "0/0" }
+        return "\(selectedSearchResultIndex + 1)/\(searchMatchMessageIDs.count)"
+    }
+
+    private func syncSearchSelection() {
+        if searchMatchMessageIDs.isEmpty {
+            selectedSearchResultIndex = 0
+            return
+        }
+        if selectedSearchResultIndex >= searchMatchMessageIDs.count {
+            selectedSearchResultIndex = searchMatchMessageIDs.count - 1
+        }
+        if selectedSearchResultIndex < 0 {
+            selectedSearchResultIndex = 0
+        }
+    }
+
+    private func moveSearchSelection(_ delta: Int, proxy: ScrollViewProxy) {
+        guard !searchMatchMessageIDs.isEmpty else { return }
+        let count = searchMatchMessageIDs.count
+        selectedSearchResultIndex = (selectedSearchResultIndex + delta + count) % count
+        scrollToSelectedSearchResult(proxy)
+    }
+
+    private func scrollToSelectedSearchResult(_ proxy: ScrollViewProxy) {
+        guard let targetID = selectedSearchMatchMessageID else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(targetID, anchor: .center)
             }
         }
     }
