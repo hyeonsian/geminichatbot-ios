@@ -7,6 +7,8 @@ struct ChatView: View {
     @EnvironmentObject private var chatStore: ChatStore
     @Environment(\.dismiss) private var dismiss
     @State private var messageText: String = ""
+    @State private var selectedUserMessageID: UUID?
+    @State private var feedbackStates: [UUID: UserMessageFeedbackState] = [:]
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -20,8 +22,27 @@ struct ChatView: View {
                     ScrollView {
                         LazyVStack(spacing: 10) {
                             ForEach(chatStore.messages(for: conversation)) { message in
-                                MessageBubbleView(message: message)
-                                    .id(message.id)
+                                VStack(spacing: 8) {
+                                    MessageBubbleView(
+                                        message: message,
+                                        isSelected: message.role == .user && selectedUserMessageID == message.id
+                                    )
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        handleMessageTap(message)
+                                    }
+
+                                    if message.role == .user,
+                                       selectedUserMessageID == message.id,
+                                       let state = feedbackStates[message.id] {
+                                        UserMessageFeedbackCard(
+                                            originalText: message.text,
+                                            state: state
+                                        )
+                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                    }
+                                }
+                                .id(message.id)
                             }
                         }
                         .padding(.horizontal, 14)
@@ -32,7 +53,7 @@ struct ChatView: View {
                         chatStore.markConversationOpened(conversation)
                         scrollToBottom(proxy)
                     }
-                    .onChange(of: chatStore.messages(for: conversation).map(\ .id)) { _ in
+                    .onChange(of: chatStore.messages(for: conversation).map(\.id)) { _ in
                         scrollToBottom(proxy)
                     }
                 }
@@ -117,6 +138,42 @@ struct ChatView: View {
         messageText = ""
     }
 
+    private func handleMessageTap(_ message: ChatMessage) {
+        guard message.role == .user else { return }
+
+        if selectedUserMessageID == message.id {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedUserMessageID = nil
+            }
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.18)) {
+            selectedUserMessageID = message.id
+        }
+
+        if case .some(.loaded(_)) = feedbackStates[message.id] {
+            return
+        }
+        if case .some(.loading) = feedbackStates[message.id] {
+            return
+        }
+
+        feedbackStates[message.id] = .loading
+        Task {
+            do {
+                let response = try await BackendAPIClient.shared.grammarFeedback(text: message.text)
+                await MainActor.run {
+                    feedbackStates[message.id] = .loaded(response)
+                }
+            } catch {
+                await MainActor.run {
+                    feedbackStates[message.id] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         guard let lastId = chatStore.messages(for: conversation).last?.id else { return }
         DispatchQueue.main.async {
@@ -124,6 +181,159 @@ struct ChatView: View {
                 proxy.scrollTo(lastId, anchor: .bottom)
             }
         }
+    }
+}
+
+private enum UserMessageFeedbackState {
+    case loading
+    case loaded(GrammarFeedbackResponse)
+    case failed(String)
+}
+
+private struct UserMessageFeedbackCard: View {
+    let originalText: String
+    let state: UserMessageFeedbackState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("YOUR MESSAGE")
+            Text(originalText)
+                .font(.system(size: 16))
+                .foregroundStyle(.primary)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+
+            sectionLabel("NATIVE FEEDBACK")
+            feedbackBody
+
+            if case let .loaded(data) = state,
+               data.hasErrors,
+               !data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sectionLabel("CORRECTED SENTENCE")
+                Text(data.correctedText)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.blue.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.blue.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var feedbackBody: some View {
+        switch state {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking your sentence...")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 2)
+
+        case let .failed(message):
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundStyle(.red)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+
+        case let .loaded(data):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(data.feedback)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.primary)
+
+                if !data.feedbackPoints.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(Array(data.feedbackPoints.enumerated()), id: \.offset) { _, point in
+                            feedbackPointRow(point)
+                        }
+                    }
+                }
+
+                if !data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Natural rewrite")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        Text(data.naturalRewrite)
+                            .font(.system(size: 15))
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+        }
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.secondary)
+            .tracking(0.5)
+    }
+
+    private func feedbackPointRow(_ point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(point.part)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.red)
+                Text("→")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text((point.fix ?? "").isEmpty ? "(improve)" : (point.fix ?? ""))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.green)
+            }
+            if let issue = point.issue, !issue.isEmpty {
+                Text(issue)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .tertiarySystemBackground))
+        )
     }
 }
 

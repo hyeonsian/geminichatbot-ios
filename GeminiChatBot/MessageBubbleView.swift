@@ -3,6 +3,7 @@ import UIKit
 
 struct MessageBubbleView: View {
     let message: ChatMessage
+    var isSelected: Bool = false
 
     var body: some View {
         HStack {
@@ -36,13 +37,19 @@ struct MessageBubbleView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(message.role == .ai ? Color(uiColor: .systemGray5) : Color.blue)
         )
+        .overlay {
+            if isSelected && message.role == .user {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.55), lineWidth: 1.5)
+            }
+        }
     }
 }
 
 #Preview {
     VStack(spacing: 10) {
         MessageBubbleView(message: .init(role: .ai, text: "Hello, how are you doing today?", timeText: "17:06"))
-        MessageBubbleView(message: .init(role: .user, text: "I'm good! I want to practice English.", timeText: "17:06"))
+        MessageBubbleView(message: .init(role: .user, text: "I'm good! I want to practice English.", timeText: "17:06"), isSelected: true)
     }
     .padding()
     .background(Color(uiColor: .systemGroupedBackground))
