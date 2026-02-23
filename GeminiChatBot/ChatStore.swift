@@ -237,6 +237,24 @@ final class ChatStore: ObservableObject {
         persistState()
     }
 
+    func clearConversationHistory(for conversationID: UUID) {
+        messagesByConversationID[conversationID] = []
+
+        if let index = conversations.firstIndex(where: { $0.id == conversationID }) {
+            let current = conversations[index]
+            conversations[index] = Conversation(
+                id: current.id,
+                name: current.name,
+                lastMessage: "",
+                timeText: "",
+                unreadCount: 0,
+                avatarText: current.avatarText
+            )
+        }
+
+        persistState()
+    }
+
     func selectedDictionaryCategoryTitle() -> String? {
         switch selectedDictionaryCategoryFilter {
         case .all:

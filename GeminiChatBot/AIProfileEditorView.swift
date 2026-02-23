@@ -13,6 +13,7 @@ struct AIProfileEditorView: View {
     @State private var draftVoicePreset = "Kore"
     @State private var draftAvatarImageData: Data?
     @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var showClearHistoryConfirmation = false
 
     var body: some View {
         ZStack {
@@ -23,6 +24,7 @@ struct AIProfileEditorView: View {
                 VStack(spacing: 20) {
                     profileHeaderCard
                     voicePresetSection
+                    clearHistorySection
                     Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 16)
@@ -63,6 +65,14 @@ struct AIProfileEditorView: View {
                     }
                 }
             }
+        }
+        .alert("대화 내역 지우기", isPresented: $showClearHistoryConfirmation) {
+            Button("취소", role: .cancel) {}
+            Button("지우기", role: .destructive) {
+                chatStore.clearConversationHistory(for: conversationID)
+            }
+        } message: {
+            Text("현재 채팅방의 대화 내역만 모두 삭제합니다. 사전에 저장된 항목은 삭제되지 않습니다.")
         }
     }
 
@@ -142,6 +152,37 @@ struct AIProfileEditorView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.blue.opacity(0.08), lineWidth: 1)
             )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var clearHistorySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("CHAT")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+
+            Button(action: { showClearHistoryConfirmation = true }) {
+                HStack {
+                    Image(systemName: "trash")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("대화 내역 지우기")
+                        .font(.system(size: 16, weight: .semibold))
+                    Spacer()
+                }
+                .foregroundStyle(Color.red)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(uiColor: .systemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.red.opacity(0.14), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
