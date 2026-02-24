@@ -219,6 +219,20 @@ struct AIProfileEditorView: View {
                 .tracking(0.5)
 
             VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(memoryDebugStatusText)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(memoryDebugStatusColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button("Refresh") {
+                        chatStore.refreshConversationMemorySummaryNow(for: conversationID)
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
                 if conversationMemoryDebugText.isEmpty {
                     Text("No memory saved yet.")
                         .font(.system(size: 14))
@@ -251,6 +265,26 @@ struct AIProfileEditorView: View {
     private var conversationMemoryDebugText: String {
         chatStore.conversationMemorySummary(for: conversationID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var memoryDebugStatusText: String {
+        let text = chatStore.conversationMemorySyncStatus(for: conversationID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? "No sync status yet." : text
+    }
+
+    private var memoryDebugStatusColor: Color {
+        let lower = memoryDebugStatusText.lowercased()
+        if lower.contains("failed") {
+            return .red
+        }
+        if lower.contains("syncing") {
+            return .orange
+        }
+        if lower.contains("succeeded") {
+            return .green
+        }
+        return .secondary
     }
 
     @ViewBuilder

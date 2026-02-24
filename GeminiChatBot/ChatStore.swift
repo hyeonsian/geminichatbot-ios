@@ -35,6 +35,7 @@ final class ChatStore: ObservableObject {
     @Published private(set) var dictionaryCategories: [DictionaryCategory] = []
     @Published private(set) var aiProfilesByConversationID: [UUID: AIProfileSettings] = [:]
     @Published private(set) var conversationMemoryByConversationID: [UUID: String] = [:]
+    @Published private(set) var conversationMemorySyncStatusByConversationID: [UUID: String] = [:]
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
 
     init(conversations: [Conversation] = SampleData.conversations, userDefaults: UserDefaults = .standard) {
@@ -94,6 +95,14 @@ final class ChatStore: ObservableObject {
 
     func conversationMemorySummary(for conversationID: UUID) -> String {
         conversationMemoryByConversationID[conversationID] ?? ""
+    }
+
+    func conversationMemorySyncStatus(for conversationID: UUID) -> String? {
+        conversationMemorySyncStatusByConversationID[conversationID]
+    }
+
+    func refreshConversationMemorySummaryNow(for conversationID: UUID) {
+        refreshConversationMemorySummary(for: conversationID)
     }
 
     func saveNativeAlternative(_ item: NativeAlternativeItem, originalText: String, categoryIDs: [UUID] = []) -> Bool {
@@ -368,9 +377,13 @@ final class ChatStore: ObservableObject {
             excludingLatestUserMessage: false,
             limit: 20
         )
-        guard !history.isEmpty else { return }
+        guard !history.isEmpty else {
+            conversationMemorySyncStatusByConversationID[conversationID] = "No messages to summarize yet."
+            return
+        }
 
         let currentSummary = conversationMemoryByConversationID[conversationID] ?? ""
+        conversationMemorySyncStatusByConversationID[conversationID] = "Syncing memory..."
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -386,10 +399,14 @@ final class ChatStore: ObservableObject {
                     } else {
                         self.conversationMemoryByConversationID[conversationID] = normalized
                     }
+                    self.conversationMemorySyncStatusByConversationID[conversationID] = "Last sync succeeded."
                     self.persistState()
                 }
             } catch {
-                // Memory update failures should not interrupt the main chat flow.
+                await MainActor.run {
+                    self.conversationMemorySyncStatusByConversationID[conversationID] =
+                        "Memory sync failed: \(error.localizedDescription)"
+                }
             }
         }
     }
