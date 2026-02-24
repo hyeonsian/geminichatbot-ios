@@ -274,6 +274,38 @@ final class ChatStore: ObservableObject {
         persistState()
     }
 
+    func promoteNativeVariantToPrimary(entryID: UUID, variantID: UUID) {
+        guard let index = dictionaryEntries.firstIndex(where: { $0.id == entryID }) else { return }
+        let entry = dictionaryEntries[index]
+        guard entry.kind == .native, let variants = entry.nativeVariants, !variants.isEmpty else { return }
+        guard let variantIndex = variants.firstIndex(where: { $0.id == variantID }) else { return }
+
+        let selected = variants[variantIndex]
+        var remaining = variants
+        remaining.remove(at: variantIndex)
+        let previousPrimary = DictionaryEntry.NativeVariant(
+            text: entry.text,
+            tone: entry.tone,
+            nuance: entry.nuance,
+            createdAt: entry.createdAt
+        )
+        let mergedVariants = deduplicatedNativeVariants(remaining + [previousPrimary], excludingPrimaryText: selected.text)
+
+        dictionaryEntries[index] = DictionaryEntry(
+            id: entry.id,
+            kind: entry.kind,
+            text: selected.text,
+            originalText: entry.originalText,
+            tone: selected.tone,
+            nuance: selected.nuance,
+            createdAt: entry.createdAt,
+            categoryIDs: entry.categoryIDs,
+            nativeVariants: mergedVariants.isEmpty ? nil : mergedVariants,
+            grammarCorrections: entry.grammarCorrections
+        )
+        persistState()
+    }
+
     func setCategories(_ categoryIDs: [UUID], for entryID: UUID) {
         guard let index = dictionaryEntries.firstIndex(where: { $0.id == entryID }) else { return }
         let entry = dictionaryEntries[index]

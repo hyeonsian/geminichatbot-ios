@@ -12,6 +12,7 @@ struct DictionaryView: View {
     @State private var renameCategoryName = ""
     @State private var categoryValidationErrorMessage = ""
     @State private var showCategoryValidationErrorAlert = false
+    @State private var expandedVariantEntryIDs: Set<UUID> = []
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -27,7 +28,22 @@ struct DictionaryView: View {
                             DictionaryEntryCard(
                                 entry: entry,
                                 categoryNames: chatStore.categoryBadges(for: entry),
-                                leadingTopCaption: index == 0 ? firstCardTopCaption : nil
+                                leadingTopCaption: index == 0 ? firstCardTopCaption : nil,
+                                isVariantsExpanded: expandedVariantEntryIDs.contains(entry.id),
+                                onToggleVariants: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        if expandedVariantEntryIDs.contains(entry.id) {
+                                            expandedVariantEntryIDs.remove(entry.id)
+                                        } else {
+                                            expandedVariantEntryIDs.insert(entry.id)
+                                        }
+                                    }
+                                },
+                                onPromoteVariant: { variant in
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        chatStore.promoteNativeVariantToPrimary(entryID: entry.id, variantID: variant.id)
+                                    }
+                                }
                             )
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowSeparator(.hidden)
@@ -418,6 +434,9 @@ private struct DictionaryEntryCard: View {
     let entry: DictionaryEntry
     let categoryNames: [String]
     var leadingTopCaption: String? = nil
+    var isVariantsExpanded: Bool = false
+    var onToggleVariants: () -> Void = {}
+    var onPromoteVariant: (DictionaryEntry.NativeVariant) -> Void = { _ in }
 
     private var cardFillColor: Color {
         Color(
@@ -429,6 +448,10 @@ private struct DictionaryEntryCard: View {
                 return UIColor(red: 0.985, green: 0.987, blue: 0.993, alpha: 1.0)
             }
         )
+    }
+
+    private var hasNativeVariants: Bool {
+        entry.kind == .native && !(entry.nativeVariants ?? []).isEmpty
     }
 
     var body: some View {
@@ -515,45 +538,64 @@ private struct DictionaryEntryCard: View {
 
             if entry.kind == .native, let variants = entry.nativeVariants, !variants.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Variants (\(variants.count))")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
+                    Button(action: onToggleVariants) {
+                        HStack(spacing: 6) {
+                            Image(systemName: isVariantsExpanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text("Variants (\(variants.count))")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(variants) { variant in
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(alignment: .top, spacing: 6) {
-                                    Text("•")
-                                        .foregroundStyle(.secondary)
-                                    Text(variant.text)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(.primary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                if !variant.tone.isEmpty || !variant.nuance.isEmpty {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        if !variant.tone.isEmpty {
-                                            Text(variant.tone)
-                                                .font(.system(size: 12, weight: .semibold))
-                                                .foregroundStyle(Color.blue)
+                    if isVariantsExpanded {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(variants) { variant in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(alignment: .top, spacing: 6) {
+                                        Text("•")
+                                            .foregroundStyle(.secondary)
+                                        Text(variant.text)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(.primary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Spacer(minLength: 8)
+                                        Button("대표로") {
+                                            onPromoteVariant(variant)
                                         }
-                                        if !variant.nuance.isEmpty {
-                                            Text(variant.nuance)
-                                                .font(.system(size: 12))
-                                                .foregroundStyle(.secondary)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Color.blue)
                                     }
-                                    .padding(.leading, 14)
+                                    if !variant.tone.isEmpty || !variant.nuance.isEmpty {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            if !variant.tone.isEmpty {
+                                                Text(variant.tone)
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundStyle(Color.blue)
+                                            }
+                                            if !variant.nuance.isEmpty {
+                                                Text(variant.nuance)
+                                                    .font(.system(size: 12))
+                                                    .foregroundStyle(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                        }
+                                        .padding(.leading, 14)
+                                    }
                                 }
                             }
                         }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(uiColor: .secondarySystemBackground))
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color(uiColor: .secondarySystemBackground))
-                    )
                 }
             }
 
@@ -575,14 +617,34 @@ private struct DictionaryEntryCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(cardFillColor)
-        )
+        .background {
+            ZStack(alignment: .topLeading) {
+                if hasNativeVariants {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(cardFillColor)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.blue.opacity(0.05), lineWidth: 1)
+                        )
+                        .offset(x: 6, y: 6)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(cardFillColor)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.blue.opacity(0.06), lineWidth: 1)
+                        )
+                        .offset(x: 3, y: 3)
+                }
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(cardFillColor)
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.blue.opacity(0.08), lineWidth: 1)
         )
+        .padding(.trailing, hasNativeVariants ? 6 : 0)
+        .padding(.bottom, hasNativeVariants ? 6 : 0)
     }
 
     @ViewBuilder
