@@ -28,8 +28,10 @@ struct AIProfileEditorView: View {
                 VStack(spacing: 20) {
                     profileHeaderCard
                     voicePresetSection
-                    clearHistorySection
                     memoryDebugSection
+                    if isEditing {
+                        clearHistoryFooterAction
+                    }
                     Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 16)
@@ -205,35 +207,19 @@ struct AIProfileEditorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var clearHistorySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("CHAT")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.secondary)
-                .tracking(0.5)
-
-            Button(action: { showClearHistoryConfirmation = true }) {
-                HStack {
-                    Image(systemName: "trash")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("대화 내역 지우기")
-                        .font(.system(size: 16, weight: .semibold))
-                    Spacer()
-                }
-                .foregroundStyle(Color.red)
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(uiColor: .systemBackground))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.red.opacity(0.14), lineWidth: 1)
-                )
+    private var clearHistoryFooterAction: some View {
+        Button(action: { showClearHistoryConfirmation = true }) {
+            HStack(spacing: 6) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11, weight: .medium))
+                Text("대화 내역 지우기")
+                    .font(.system(size: 13, weight: .regular))
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(Color.secondary)
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, -2)
     }
 
     private var memoryDebugSection: some View {
