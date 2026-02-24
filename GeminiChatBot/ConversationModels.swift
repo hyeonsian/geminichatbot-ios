@@ -188,7 +188,7 @@ struct ConversationMemoryProfile: Hashable, Codable {
         return String(text.prefix(maxChars))
     }
 
-    func debugSections() -> [(title: String, values: [String])] {
+    func debugSections() -> [(title: String, items: [String])] {
         [
             ("Hobbies", hobbies),
             ("Goals", goals),
@@ -198,7 +198,7 @@ struct ConversationMemoryProfile: Hashable, Codable {
             ("Preferences", preferences),
             ("Background", background),
             ("Notes", notes)
-        ].filter { !$0.values.isEmpty }
+        ].filter { !$0.items.isEmpty }
     }
 }
 
