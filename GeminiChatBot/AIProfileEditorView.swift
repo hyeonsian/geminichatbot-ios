@@ -233,16 +233,35 @@ struct AIProfileEditorView: View {
                     .controlSize(.small)
                 }
 
-                if conversationMemoryDebugText.isEmpty {
+                if conversationMemoryDebugSections.isEmpty && conversationMemoryDebugText.isEmpty {
                     Text("No memory saved yet.")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(conversationMemoryDebugText)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                    if !conversationMemoryDebugSections.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(conversationMemoryDebugSections.indices, id: \.self) { index in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(conversationMemoryDebugSections[index].title.uppercased())
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                    ForEach(conversationMemoryDebugSections[index].items, id: \.self) { item in
+                                        Text("• \(item)")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(.primary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text(conversationMemoryDebugText)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             .padding(14)
@@ -265,6 +284,10 @@ struct AIProfileEditorView: View {
     private var conversationMemoryDebugText: String {
         chatStore.conversationMemorySummary(for: conversationID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var conversationMemoryDebugSections: [(title: String, items: [String])] {
+        chatStore.conversationMemoryProfile(for: conversationID).debugSections()
     }
 
     private var memoryDebugStatusText: String {

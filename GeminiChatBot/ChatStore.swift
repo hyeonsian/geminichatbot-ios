@@ -10,6 +10,7 @@ final class ChatStore: ObservableObject {
         let dictionaryCategories: [DictionaryCategory]
         let aiProfilesByConversationID: [UUID: AIProfileSettings]?
         let conversationMemoryByConversationID: [UUID: String]?
+        let conversationMemoryProfileByConversationID: [UUID: ConversationMemoryProfile]?
         let conversationMemoryHistorySignatureByConversationID: [UUID: String]?
     }
 
@@ -36,6 +37,7 @@ final class ChatStore: ObservableObject {
     @Published private(set) var dictionaryCategories: [DictionaryCategory] = []
     @Published private(set) var aiProfilesByConversationID: [UUID: AIProfileSettings] = [:]
     @Published private(set) var conversationMemoryByConversationID: [UUID: String] = [:]
+    @Published private(set) var conversationMemoryProfileByConversationID: [UUID: ConversationMemoryProfile] = [:]
     @Published private(set) var conversationMemorySyncStatusByConversationID: [UUID: String] = [:]
     private var conversationMemoryHistorySignatureByConversationID: [UUID: String] = [:]
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
@@ -64,6 +66,7 @@ final class ChatStore: ObservableObject {
         persistState()
         let recentHistory = recentChatHistoryForBackend(in: conversation.id, excludingLatestUserMessage: true)
         let currentMemorySummary = conversationMemoryByConversationID[conversation.id] ?? ""
+        let currentMemoryProfile = conversationMemoryProfileByConversationID[conversation.id]
 
         Task { [weak self] in
             guard let self else { return }
@@ -71,6 +74,7 @@ final class ChatStore: ObservableObject {
                 let reply = try await BackendAPIClient.shared.chatReply(
                     message: trimmed,
                     history: recentHistory,
+                    memoryProfile: currentMemoryProfile,
                     memorySummary: currentMemorySummary
                 )
                 await MainActor.run {
@@ -99,12 +103,16 @@ final class ChatStore: ObservableObject {
         conversationMemoryByConversationID[conversationID] ?? ""
     }
 
+    func conversationMemoryProfile(for conversationID: UUID) -> ConversationMemoryProfile {
+        conversationMemoryProfileByConversationID[conversationID] ?? .empty
+    }
+
     func conversationMemorySyncStatus(for conversationID: UUID) -> String? {
         conversationMemorySyncStatusByConversationID[conversationID]
     }
 
     func refreshConversationMemorySummaryNow(for conversationID: UUID) {
-        refreshConversationMemorySummary(for: conversationID)
+        refreshConversationMemorySummary(for: conversationID, force: true)
     }
 
     func saveNativeAlternative(_ item: NativeAlternativeItem, originalText: String, categoryIDs: [UUID] = []) -> Bool {
@@ -373,7 +381,7 @@ final class ChatStore: ObservableObject {
             }
     }
 
-    private func refreshConversationMemorySummary(for conversationID: UUID) {
+    private func refreshConversationMemorySummary(for conversationID: UUID, force: Bool = false) {
         let history = recentChatHistoryForBackend(
             in: conversationID,
             excludingLatestUserMessage: false,
@@ -385,30 +393,41 @@ final class ChatStore: ObservableObject {
         }
 
         let historySignature = historySignatureForMemorySync(history)
-        if conversationMemoryHistorySignatureByConversationID[conversationID] == historySignature {
+        if !force && conversationMemoryHistorySignatureByConversationID[conversationID] == historySignature {
             conversationMemorySyncStatusByConversationID[conversationID] = "No new messages since last memory sync."
             return
         }
 
         let currentSummary = conversationMemoryByConversationID[conversationID] ?? ""
+        let currentProfile = conversationMemoryProfileByConversationID[conversationID] ?? .empty
         conversationMemorySyncStatusByConversationID[conversationID] = "Syncing memory..."
         Task { [weak self] in
             guard let self else { return }
             do {
                 let updated = try await BackendAPIClient.shared.updateMemorySummary(
                     currentSummary: currentSummary,
+                    currentMemoryProfile: currentProfile.isEmpty ? nil : currentProfile,
                     history: history
                 )
                 await MainActor.run {
-                    let normalized = updated.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if normalized.isEmpty {
+                    let normalizedSummary = updated.memorySummary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let normalizedProfile = updated.memoryProfile ?? .empty
+
+                    if normalizedSummary.isEmpty {
                         self.conversationMemoryByConversationID.removeValue(forKey: conversationID)
                     } else {
-                        self.conversationMemoryByConversationID[conversationID] = normalized
+                        self.conversationMemoryByConversationID[conversationID] = normalizedSummary
+                    }
+
+                    if normalizedProfile.isEmpty {
+                        self.conversationMemoryProfileByConversationID.removeValue(forKey: conversationID)
+                    } else {
+                        self.conversationMemoryProfileByConversationID[conversationID] = normalizedProfile
                     }
                     self.conversationMemoryHistorySignatureByConversationID[conversationID] = historySignature
+                    let memoryChanged = normalizedSummary != currentSummary || normalizedProfile != currentProfile
                     self.conversationMemorySyncStatusByConversationID[conversationID] =
-                        normalized == currentSummary ? "No new memory info detected." : "Last sync succeeded."
+                        memoryChanged ? "Last sync succeeded." : "No new memory info detected."
                     self.persistState()
                 }
             } catch {
@@ -437,7 +456,29 @@ final class ChatStore: ObservableObject {
             dictionaryCategories = decoded.dictionaryCategories
             aiProfilesByConversationID = decoded.aiProfilesByConversationID ?? [:]
             conversationMemoryByConversationID = decoded.conversationMemoryByConversationID ?? [:]
+            conversationMemoryProfileByConversationID = decoded.conversationMemoryProfileByConversationID ?? [:]
             conversationMemoryHistorySignatureByConversationID = decoded.conversationMemoryHistorySignatureByConversationID ?? [:]
+            if conversationMemoryProfileByConversationID.isEmpty && !conversationMemoryByConversationID.isEmpty {
+                for (conversationID, summary) in conversationMemoryByConversationID {
+                    let bullets = summary
+                        .split(separator: "\n")
+                        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .map { $0.replacingOccurrences(of: "^-\\s*", with: "", options: .regularExpression) }
+                        .filter { !$0.isEmpty }
+                    if !bullets.isEmpty {
+                        conversationMemoryProfileByConversationID[conversationID] = ConversationMemoryProfile(
+                            hobbies: [],
+                            goals: [],
+                            projects: [],
+                            personalityTraits: [],
+                            dailyRoutine: [],
+                            preferences: [],
+                            background: [],
+                            notes: Array(bullets.prefix(8))
+                        )
+                    }
+                }
+            }
         } catch {
             print("ChatStore persistence load failed:", error)
         }
@@ -452,6 +493,7 @@ final class ChatStore: ObservableObject {
             aiProfilesByConversationID: aiProfilesByConversationID
             ,
             conversationMemoryByConversationID: conversationMemoryByConversationID,
+            conversationMemoryProfileByConversationID: conversationMemoryProfileByConversationID,
             conversationMemoryHistorySignatureByConversationID: conversationMemoryHistorySignatureByConversationID
         )
         do {

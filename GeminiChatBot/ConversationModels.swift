@@ -120,6 +120,88 @@ struct AIProfileSettings: Hashable, Codable {
     ]
 }
 
+struct ConversationMemoryProfile: Hashable, Codable {
+    var hobbies: [String]
+    var goals: [String]
+    var projects: [String]
+    var personalityTraits: [String]
+    var dailyRoutine: [String]
+    var preferences: [String]
+    var background: [String]
+    var notes: [String]
+
+    init(
+        hobbies: [String] = [],
+        goals: [String] = [],
+        projects: [String] = [],
+        personalityTraits: [String] = [],
+        dailyRoutine: [String] = [],
+        preferences: [String] = [],
+        background: [String] = [],
+        notes: [String] = []
+    ) {
+        self.hobbies = hobbies
+        self.goals = goals
+        self.projects = projects
+        self.personalityTraits = personalityTraits
+        self.dailyRoutine = dailyRoutine
+        self.preferences = preferences
+        self.background = background
+        self.notes = notes
+    }
+
+    static let empty = ConversationMemoryProfile()
+
+    var isEmpty: Bool {
+        hobbies.isEmpty &&
+        goals.isEmpty &&
+        projects.isEmpty &&
+        personalityTraits.isEmpty &&
+        dailyRoutine.isEmpty &&
+        preferences.isEmpty &&
+        background.isEmpty &&
+        notes.isEmpty
+    }
+
+    func promptSummary(maxChars: Int = 2600) -> String {
+        let sections: [(String, [String])] = [
+            ("Hobbies", hobbies),
+            ("Goals", goals),
+            ("Projects", projects),
+            ("Personality", personalityTraits),
+            ("Daily Routine", dailyRoutine),
+            ("Preferences", preferences),
+            ("Background", background),
+            ("Notes", notes)
+        ]
+
+        let text = sections
+            .filter { !$0.1.isEmpty }
+            .map { title, values in
+                let bullets = values.map { "- \($0)" }.joined(separator: "\n")
+                return "\(title):\n\(bullets)"
+            }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if text.count <= maxChars { return text }
+        return String(text.prefix(maxChars))
+    }
+
+    func debugSections() -> [(title: String, values: [String])] {
+        [
+            ("Hobbies", hobbies),
+            ("Goals", goals),
+            ("Projects", projects),
+            ("Personality", personalityTraits),
+            ("Daily Routine", dailyRoutine),
+            ("Preferences", preferences),
+            ("Background", background),
+            ("Notes", notes)
+        ].filter { !$0.values.isEmpty }
+    }
+}
+
 enum DictionaryCategoryFilter: Hashable {
     case all
     case category(UUID)

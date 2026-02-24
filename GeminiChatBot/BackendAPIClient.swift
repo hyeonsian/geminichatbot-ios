@@ -85,6 +85,7 @@ private struct ChatRequest: Encodable {
     let message: String
     let history: [BackendChatHistoryItem]?
     let memorySummary: String?
+    let memoryProfile: ConversationMemoryProfile?
     let model: String?
 }
 
@@ -101,12 +102,25 @@ private struct TTSRequest: Encodable {
 
 private struct MemorySummaryRequest: Encodable {
     let currentSummary: String
+    let currentMemoryProfile: ConversationMemoryProfile?
     let history: [BackendChatHistoryItem]
     let model: String?
 }
 
-private struct MemorySummaryResponse: Decodable {
+struct MemorySummaryResponse: Decodable {
+    let memoryProfile: ConversationMemoryProfile?
     let memorySummary: String
+
+    private enum CodingKeys: String, CodingKey {
+        case memoryProfile
+        case memorySummary
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        memoryProfile = try container.decodeIfPresent(ConversationMemoryProfile.self, forKey: .memoryProfile)
+        memorySummary = try container.decodeIfPresent(String.self, forKey: .memorySummary) ?? ""
+    }
 }
 
 enum BackendAPIError: LocalizedError {
@@ -165,36 +179,40 @@ final class BackendAPIClient {
         return response.translation
     }
 
+    func updateMemorySummary(
+        currentSummary: String,
+        currentMemoryProfile: ConversationMemoryProfile? = nil,
+        history: [BackendChatHistoryItem],
+        model: String? = nil
+    ) async throws -> MemorySummaryResponse {
+        let req = MemorySummaryRequest(
+            currentSummary: currentSummary,
+            currentMemoryProfile: currentMemoryProfile,
+            history: history,
+            model: model
+        )
+        return try await post(path: "/api/memory-summary", body: req, responseType: MemorySummaryResponse.self)
+    }
+
     func chatReply(
         message: String,
         history: [BackendChatHistoryItem] = [],
+        memoryProfile: ConversationMemoryProfile? = nil,
         memorySummary: String? = nil,
         model: String? = nil
     ) async throws -> String {
+        let normalizedSummary = memorySummary?.trimmingCharacters(in: .whitespacesAndNewlines)
         let req = ChatRequest(
             message: message,
             history: history.isEmpty ? nil : history,
-            memorySummary: memorySummary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? memorySummary : nil,
+            memorySummary: normalizedSummary?.isEmpty == false ? normalizedSummary : nil,
+            memoryProfile: memoryProfile?.isEmpty == false ? memoryProfile : nil,
             model: model
         )
         let response = try await post(path: "/api/chat", body: req, responseType: ChatResponse.self)
         let trimmed = response.reply.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { throw BackendAPIError.emptyResponse }
         return trimmed
-    }
-
-    func updateMemorySummary(
-        currentSummary: String,
-        history: [BackendChatHistoryItem],
-        model: String? = nil
-    ) async throws -> String {
-        let req = MemorySummaryRequest(
-            currentSummary: currentSummary,
-            history: history,
-            model: model
-        )
-        let response = try await post(path: "/api/memory-summary", body: req, responseType: MemorySummaryResponse.self)
-        return response.memorySummary.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func ttsAudio(text: String, voiceName: String? = nil, style: String? = nil) async throws -> Data {
