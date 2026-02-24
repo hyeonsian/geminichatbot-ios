@@ -465,7 +465,15 @@ private struct DictionaryEntryCard: View {
         entry.kind == .native && !(entry.nativeVariants ?? []).isEmpty
     }
 
+    private var variants: [DictionaryEntry.NativeVariant] {
+        entry.kind == .native ? (entry.nativeVariants ?? []) : []
+    }
+
     var body: some View {
+        mainCard
+    }
+
+    private var mainCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let leadingTopCaption, !leadingTopCaption.isEmpty {
                 Text(leadingTopCaption)
@@ -547,69 +555,6 @@ private struct DictionaryEntryCard: View {
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if entry.kind == .native, let variants = entry.nativeVariants, !variants.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    if isVariantsExpanded {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(variants) { variant in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(alignment: .top, spacing: 6) {
-                                        Text("•")
-                                            .foregroundStyle(.secondary)
-                                        Text(variant.text)
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                        Spacer(minLength: 8)
-                                        Button("대표로") {
-                                            onPromoteVariant(variant)
-                                        }
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(Color.blue)
-                                    }
-                                    if !variant.tone.isEmpty || !variant.nuance.isEmpty {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            if !variant.tone.isEmpty {
-                                                Text(variant.tone)
-                                                    .font(.system(size: 12, weight: .semibold))
-                                                    .foregroundStyle(Color.blue)
-                                            }
-                                            if !variant.nuance.isEmpty {
-                                                Text(variant.nuance)
-                                                    .font(.system(size: 12))
-                                                    .foregroundStyle(.secondary)
-                                                    .fixedSize(horizontal: false, vertical: true)
-                                            }
-                                        }
-                                        .padding(.leading, 14)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(uiColor: .secondarySystemBackground))
-                        )
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-
-                    Button(action: onToggleVariants) {
-                        HStack(spacing: 6) {
-                            Image(systemName: isVariantsExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                            Text("Variants (\(variants.count))")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
             if !entry.tone.isEmpty || !entry.nuance.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     if !entry.tone.isEmpty {
@@ -625,26 +570,52 @@ private struct DictionaryEntryCard: View {
                     }
                 }
             }
+
+            if hasNativeVariants {
+                Button(action: onToggleVariants) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isVariantsExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("Variants (\(variants.count))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isVariantsExpanded {
+                    expandedVariantsStack
+                        .padding(.top, 2)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             ZStack(alignment: .topLeading) {
                 if hasNativeVariants {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(cardFillColor)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.blue.opacity(0.05), lineWidth: 1)
-                        )
-                        .offset(x: 8, y: 8)
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(cardFillColor)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.blue.opacity(0.06), lineWidth: 1)
-                        )
-                        .offset(x: 4, y: 4)
+                    if variants.count >= 2 {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(cardFillColor)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.blue.opacity(0.05), lineWidth: 1)
+                            )
+                            .offset(x: 14, y: 14)
+                    }
+                    if variants.count >= 1 {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(cardFillColor)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.blue.opacity(0.06), lineWidth: 1)
+                            )
+                            .offset(x: 7, y: 7)
+                    }
                 }
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(cardFillColor)
@@ -659,8 +630,73 @@ private struct DictionaryEntryCard: View {
             guard hasNativeVariants else { return }
             onCardTap?()
         }
-        .padding(.trailing, hasNativeVariants ? 8 : 0)
-        .padding(.bottom, hasNativeVariants ? 8 : 0)
+        .padding(.trailing, hasNativeVariants ? (variants.count >= 2 ? 14 : 7) : 0)
+        .padding(.bottom, hasNativeVariants ? (variants.count >= 2 ? 14 : 7) : 0)
+    }
+
+    private var expandedVariantsStack: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(variants.enumerated()), id: \.element.id) { index, variant in
+                variantCard(variant)
+                    .padding(.leading, CGFloat(min(index, 3)) * 10)
+            }
+        }
+    }
+
+    private func variantCard(_ variant: DictionaryEntry.NativeVariant) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
+                Text("•")
+                    .foregroundStyle(.secondary)
+                Text(variant.text)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(action: { onPromoteVariant(variant) }) {
+                    Text("대표")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.blue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.blue.opacity(0.10))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !variant.tone.isEmpty || !variant.nuance.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    if !variant.tone.isEmpty {
+                        Text(variant.tone)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.blue)
+                    }
+                    if !variant.nuance.isEmpty {
+                        Text(variant.nuance)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.leading, 14)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.blue.opacity(0.08), lineWidth: 1)
+        )
     }
 
     @ViewBuilder
