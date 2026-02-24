@@ -373,6 +373,10 @@ struct ChatView: View {
                         originalText: message.text,
                         state: state,
                         nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
+                        isImprovedExpressionSaved: isImprovedExpressionSaved(for: message),
+                        onSaveImprovedExpression: { improvedText in
+                            saveImprovedExpression(improvedText, originalText: message.text)
+                        },
                         onTapNativeAlternatives: {
                             openNativeAlternatives(for: message)
                         }
@@ -405,6 +409,17 @@ struct ChatView: View {
         .onTapGesture {
             handleMessageTap(message)
         }
+    }
+
+    private func isImprovedExpressionSaved(for message: ChatMessage) -> Bool {
+        guard message.role == .user else { return false }
+        guard case let .loaded(data) = feedbackStates[message.id] else { return false }
+        guard data.hasErrors, let improved = improvedExpression(from: data), !improved.isEmpty else { return false }
+        return chatStore.isSavedDictionaryText(improved)
+    }
+
+    private func saveImprovedExpression(_ improvedText: String, originalText: String) {
+        _ = chatStore.saveGrammarCorrection(improvedText, originalText: originalText)
     }
 
     private func toggleSearchVisibility() {
@@ -734,6 +749,8 @@ private struct UserMessageFeedbackCard: View {
     let originalText: String
     let state: UserMessageFeedbackState
     let nativeAlternativesState: NativeAlternativesLoadState
+    let isImprovedExpressionSaved: Bool
+    let onSaveImprovedExpression: (String) -> Void
     let onTapNativeAlternatives: () -> Void
 
     var body: some View {
@@ -748,19 +765,46 @@ private struct UserMessageFeedbackCard: View {
                let improved = improvedExpression(from: data),
                !improved.isEmpty {
                 sectionLabel("IMPROVED EXPRESSION")
-                Text(improved)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(.primary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color(uiColor: .secondarySystemBackground))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.blue.opacity(0.12), lineWidth: 1)
-                    )
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(improved)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if data.hasErrors {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                onSaveImprovedExpression(improved)
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isImprovedExpressionSaved ? "checkmark" : "plus")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Text(isImprovedExpressionSaved ? "Saved to My Dictionary" : "Save corrected sentence")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundStyle(isImprovedExpressionSaved ? Color.green : Color.blue)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color(uiColor: .tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.blue.opacity(0.12), lineWidth: 1)
+                )
             }
 
             nativeAlternativesButton

@@ -137,6 +137,26 @@ final class ChatStore: ObservableObject {
         return true
     }
 
+    func saveGrammarCorrection(_ correctedText: String, originalText: String, categoryIDs: [UUID] = []) -> Bool {
+        let normalizedTarget = normalizeDictionaryText(correctedText)
+        guard !normalizedTarget.isEmpty else { return false }
+        if dictionaryEntries.contains(where: { normalizeDictionaryText($0.text) == normalizedTarget }) {
+            return false
+        }
+
+        let entry = DictionaryEntry(
+            kind: .grammar,
+            text: correctedText.trimmingCharacters(in: .whitespacesAndNewlines),
+            originalText: originalText.trimmingCharacters(in: .whitespacesAndNewlines),
+            tone: "Corrected",
+            nuance: "Saved from native feedback",
+            categoryIDs: categoryIDs
+        )
+        dictionaryEntries.insert(entry, at: 0)
+        persistState()
+        return true
+    }
+
     func isSavedDictionaryText(_ text: String) -> Bool {
         let normalizedTarget = normalizeDictionaryText(text)
         guard !normalizedTarget.isEmpty else { return false }
