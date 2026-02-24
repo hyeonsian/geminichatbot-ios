@@ -108,7 +108,13 @@ final class SpeechToTextService: ObservableObject {
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
+        let inputFormat = inputNode.inputFormat(forBus: 0)
+        let outputFormat = inputNode.outputFormat(forBus: 0)
+        let format = isValidAudioFormat(inputFormat) ? inputFormat : outputFormat
+        guard isValidAudioFormat(format) else {
+            throw SpeechToTextError.audioEngineUnavailable
+        }
+
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
@@ -148,5 +154,9 @@ final class SpeechToTextService: ObservableObject {
         recognitionRequest = nil
         isRecording = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func isValidAudioFormat(_ format: AVAudioFormat) -> Bool {
+        format.channelCount > 0 && format.sampleRate > 0 && format.streamDescription != nil
     }
 }
