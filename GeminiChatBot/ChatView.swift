@@ -111,6 +111,9 @@ struct ChatView: View {
             guard let errorMessage, !errorMessage.isEmpty else { return }
             speechInputAlertMessage = errorMessage
         }
+        .onChange(of: currentAIProfile.koreanTranslationSpeechLevel) { _ in
+            aiTranslationStates.removeAll()
+        }
         .alert("Speech Input", isPresented: Binding(
             get: { speechInputAlertMessage != nil },
             set: { isPresented in
