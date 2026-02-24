@@ -54,6 +54,11 @@ final class SpeechToTextService: ObservableObject {
     }
 
     func startRecording(initialText: String = "") {
+        if isRunningInSimulator {
+            errorMessage = SpeechToTextError.simulatorUnsupported.errorDescription
+            return
+        }
+
         Task {
             do {
                 clearError()
@@ -88,6 +93,14 @@ final class SpeechToTextService: ObservableObject {
                 continuation.resume(returning: granted)
             }
         }
+    }
+
+    private var isRunningInSimulator: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        return ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != nil
+        #endif
     }
 
     private func startRecognition(initialText: String) throws {
