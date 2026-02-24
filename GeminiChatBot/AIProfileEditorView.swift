@@ -28,6 +28,7 @@ struct AIProfileEditorView: View {
                     profileHeaderCard
                     voicePresetSection
                     clearHistorySection
+                    memoryDebugSection
                     Spacer(minLength: 24)
                 }
                 .padding(.horizontal, 16)
@@ -210,8 +211,46 @@ struct AIProfileEditorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var memoryDebugSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("CONVERSATION MEMORY (DEBUG)")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+
+            VStack(alignment: .leading, spacing: 8) {
+                if conversationMemoryDebugText.isEmpty {
+                    Text("No memory saved yet.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(conversationMemoryDebugText)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .systemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.blue.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var currentProfile: AIProfileSettings {
         chatStore.aiProfile(for: conversationID)
+    }
+
+    private var conversationMemoryDebugText: String {
+        chatStore.conversationMemorySummary(for: conversationID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @ViewBuilder
