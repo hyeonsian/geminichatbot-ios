@@ -468,17 +468,17 @@ struct ChatView: View {
         guard !source.isEmpty else { return nil }
 
         let corrected = data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if data.hasErrors, !corrected.isEmpty, !isMinorSentenceDifference(source, corrected) {
+        if data.hasErrors, !corrected.isEmpty, !self.isMinorSentenceDifference(source, corrected) {
             return corrected
         }
 
         let naturalRewrite = data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !naturalRewrite.isEmpty, !isMinorSentenceDifference(source, naturalRewrite) {
+        if !naturalRewrite.isEmpty, !self.isMinorSentenceDifference(source, naturalRewrite) {
             return naturalRewrite
         }
 
         let naturalAlternative = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !naturalAlternative.isEmpty, !isMinorSentenceDifference(source, naturalAlternative) {
+        if !naturalAlternative.isEmpty, !self.isMinorSentenceDifference(source, naturalAlternative) {
             return naturalAlternative
         }
 
@@ -494,8 +494,8 @@ struct ChatView: View {
         for point in data.feedbackPoints {
             let wrong = point.part.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !wrong.isEmpty else { continue }
-            guard let replacement = normalizedReplacement(from: point.fix ?? "", part: wrong), !replacement.isEmpty else { continue }
-            guard !isMinorSentenceDifference(wrong, replacement) else { continue }
+            guard let replacement = self.normalizedReplacement(from: point.fix ?? "", part: wrong), !replacement.isEmpty else { continue }
+            guard !self.isMinorSentenceDifference(wrong, replacement) else { continue }
             let key = normalizedSentenceKey(wrong) + "->" + normalizedSentenceKey(replacement)
             if seen.contains(key) { continue }
             seen.insert(key)
@@ -509,7 +509,7 @@ struct ChatView: View {
                 let wrong = edit.wrong.trimmingCharacters(in: .whitespacesAndNewlines)
                 let right = edit.right.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !wrong.isEmpty, !right.isEmpty else { continue }
-                guard !isMinorSentenceDifference(wrong, right) else { continue }
+                guard !self.isMinorSentenceDifference(wrong, right) else { continue }
                 let key = normalizedSentenceKey(wrong) + "->" + normalizedSentenceKey(right)
                 if seen.contains(key) { continue }
                 seen.insert(key)
@@ -538,19 +538,19 @@ struct ChatView: View {
         let raw = rawFix.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty { return nil }
 
-        if let addQuoted = firstQuotedPhrase(in: raw, afterPrefix: "add") {
+        if let addQuoted = self.firstQuotedPhrase(in: raw, afterPrefix: "add") {
             let merged = "\(part) \(addQuoted)".replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             return merged.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        if let useQuoted = firstQuotedPhrase(in: raw, afterPrefix: "use") {
+        if let useQuoted = self.firstQuotedPhrase(in: raw, afterPrefix: "use") {
             return useQuoted
         }
 
-        if let removeQuoted = firstQuotedPhrase(in: raw, afterPrefix: "remove")
-            ?? firstQuotedPhrase(in: raw, afterPrefix: "delete")
-            ?? firstQuotedPhrase(in: raw, afterPrefix: "omit") {
-            if let removed = removingQuotedPhrase(removeQuoted, from: part) {
+        if let removeQuoted = self.firstQuotedPhrase(in: raw, afterPrefix: "remove")
+            ?? self.firstQuotedPhrase(in: raw, afterPrefix: "delete")
+            ?? self.firstQuotedPhrase(in: raw, afterPrefix: "omit") {
+            if let removed = self.removingQuotedPhrase(removeQuoted, from: part) {
                 return removed
             }
         }
@@ -571,7 +571,7 @@ struct ChatView: View {
     }
 
     private func removingQuotedPhrase(_ quoted: String, from part: String) -> String? {
-        let removed = replacingFirstCaseInsensitive(in: part, target: quoted, replacement: "")
+        let removed = self.replacingFirstCaseInsensitive(in: part, target: quoted, replacement: "")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "\\s+([,?.!])", with: "$1", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1221,7 +1221,7 @@ private struct UserMessageFeedbackCard: View {
 
     private func feedbackFixPreview(for point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> String {
         let raw = (point.fix ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if let normalized = normalizedReplacement(from: raw, part: point.part) {
+        if let normalized = self.normalizedReplacement(from: raw, part: point.part) {
             return normalized
         }
         return raw.isEmpty ? "(improve)" : raw
@@ -1235,24 +1235,24 @@ private struct UserMessageFeedbackCard: View {
 
         if data.hasErrors {
             let corrected = data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !corrected.isEmpty && !isMinorSentenceDifference(source, corrected) {
+            if !corrected.isEmpty && !self.isMinorSentenceDifference(source, corrected) {
                 candidates.append(corrected)
             }
         }
 
         let viaEdits = applyEdits(source, edits: data.edits)
         let viaPoints = applyFeedbackPoints(viaEdits, points: data.feedbackPoints)
-        if !viaPoints.isEmpty && !isMinorSentenceDifference(source, viaPoints) {
+        if !viaPoints.isEmpty && !self.isMinorSentenceDifference(source, viaPoints) {
             candidates.append(viaPoints)
         }
 
         let naturalRewrite = data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !naturalRewrite.isEmpty && !isMinorSentenceDifference(source, naturalRewrite) {
+        if !naturalRewrite.isEmpty && !self.isMinorSentenceDifference(source, naturalRewrite) {
             candidates.append(naturalRewrite)
         }
 
         let naturalAlternative = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !naturalAlternative.isEmpty && !isMinorSentenceDifference(source, naturalAlternative) {
+        if !naturalAlternative.isEmpty && !self.isMinorSentenceDifference(source, naturalAlternative) {
             candidates.append(naturalAlternative)
         }
 
@@ -1273,7 +1273,7 @@ private struct UserMessageFeedbackCard: View {
             let wrong = edit.wrong.trimmingCharacters(in: .whitespacesAndNewlines)
             let right = edit.right.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !wrong.isEmpty, !right.isEmpty else { continue }
-            text = replacingFirstCaseInsensitive(in: text, target: wrong, replacement: right)
+            text = self.replacingFirstCaseInsensitive(in: text, target: wrong, replacement: right)
         }
         return text
     }
@@ -1284,9 +1284,9 @@ private struct UserMessageFeedbackCard: View {
         for point in sorted {
             let part = point.part.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !part.isEmpty else { continue }
-            guard let replacement = normalizedReplacement(from: point.fix ?? "", part: part) else { continue }
+            guard let replacement = self.normalizedReplacement(from: point.fix ?? "", part: part) else { continue }
             if normalizedTextKey(replacement).isEmpty { continue }
-            text = replacingFirstCaseInsensitive(in: text, target: part, replacement: replacement)
+            text = self.replacingFirstCaseInsensitive(in: text, target: part, replacement: replacement)
         }
         return text
     }
@@ -1297,6 +1297,74 @@ private struct UserMessageFeedbackCard: View {
             .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .lowercased()
+    }
+
+
+    private func normalizedSentenceKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .lowercased()
+    }
+
+    private func isMinorSentenceDifference(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedSentenceKey(lhs) == normalizedSentenceKey(rhs)
+    }
+
+    private func normalizedReplacement(from rawFix: String, part: String) -> String? {
+        let raw = rawFix.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return nil }
+
+        if let addQuoted = self.firstQuotedPhrase(in: raw, afterPrefix: "add") {
+            let merged = "\(part) \(addQuoted)".replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            return merged.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let useQuoted = self.firstQuotedPhrase(in: raw, afterPrefix: "use") {
+            return useQuoted
+        }
+
+        if let removeQuoted = self.firstQuotedPhrase(in: raw, afterPrefix: "remove")
+            ?? self.firstQuotedPhrase(in: raw, afterPrefix: "delete")
+            ?? self.firstQuotedPhrase(in: raw, afterPrefix: "omit") {
+            if let removed = self.removingQuotedPhrase(removeQuoted, from: part) {
+                return removed
+            }
+        }
+
+        if raw.count <= 36 {
+            return raw
+        }
+        return nil
+    }
+
+    private func firstQuotedPhrase(in text: String, afterPrefix prefix: String) -> String? {
+        let pattern = "(?i)\\b" + NSRegularExpression.escapedPattern(for: prefix) + "\\b\\s+['\"]([^'\"]+)['\"]"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        guard let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 else { return nil }
+        let quoted = (text as NSString).substring(with: match.range(at: 1))
+        return quoted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func removingQuotedPhrase(_ quoted: String, from part: String) -> String? {
+        let removed = self.replacingFirstCaseInsensitive(in: part, target: quoted, replacement: "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+([,?.!])", with: "$1", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !removed.isEmpty else { return nil }
+        return removed
+    }
+
+    private func replacingFirstCaseInsensitive(in source: String, target: String, replacement: String) -> String {
+        guard !target.isEmpty else { return source }
+        let escaped = NSRegularExpression.escapedPattern(for: target)
+        guard let regex = try? NSRegularExpression(pattern: escaped, options: [.caseInsensitive]) else { return source }
+        let range = NSRange(location: 0, length: (source as NSString).length)
+        guard let match = regex.firstMatch(in: source, options: [], range: range) else { return source }
+        let ns = source as NSString
+        return ns.replacingCharacters(in: match.range, with: replacement)
     }
 
 }
