@@ -464,6 +464,18 @@ struct ChatView: View {
         return nil
     }
 
+    private func normalizedSentenceKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\s+", with: " ", options: .regularExpression)
+            .lowercased()
+    }
+
+    private func isMinorSentenceDifference(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedSentenceKey(lhs) == normalizedSentenceKey(rhs)
+    }
+
     private func toggleSearchVisibility() {
         withAnimation(.easeInOut(duration: 0.18)) {
             isSearchVisible.toggle()
