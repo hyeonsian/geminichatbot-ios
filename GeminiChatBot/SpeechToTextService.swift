@@ -9,6 +9,7 @@ final class SpeechToTextService: ObservableObject {
         case recognizerUnavailable
         case permissionDenied
         case audioEngineUnavailable
+        case simulatorUnsupported
 
         var errorDescription: String? {
             switch self {
@@ -18,6 +19,8 @@ final class SpeechToTextService: ObservableObject {
                 return "Speech recognition and microphone permissions are required."
             case .audioEngineUnavailable:
                 return "Audio input is unavailable."
+            case .simulatorUnsupported:
+                return "Speech-to-text is unstable in Simulator. Please test on a real iPhone."
             }
         }
     }
@@ -92,6 +95,9 @@ final class SpeechToTextService: ObservableObject {
             throw SpeechToTextError.recognizerUnavailable
         }
 
+#if targetEnvironment(simulator)
+        throw SpeechToTextError.simulatorUnsupported
+#else
         finishRecognition()
         transcript = initialText
         isManuallyStopping = false
@@ -99,12 +105,12 @@ final class SpeechToTextService: ObservableObject {
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
- ㅠ
+ 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if #available(iOS 16.0, *) {
             request.addsPunctuation = true
-        }
+        } 
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
@@ -141,6 +147,7 @@ final class SpeechToTextService: ObservableObject {
                 }
             }
         }
+#endif
     }
 
     private func finishRecognition() {
