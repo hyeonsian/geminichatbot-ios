@@ -25,6 +25,7 @@ struct ChatView: View {
     @State private var feedbackStates: [UUID: UserMessageFeedbackState] = [:]
     @State private var nativeAlternativesStates: [UUID: NativeAlternativesLoadState] = [:]
     @State private var nativeAlternativesSheetMessage: ChatMessage?
+    @State private var pendingGrammarSaveRequest: PendingGrammarSaveRequest?
     @State private var aiTranslationStates: [UUID: AIMessageTranslationState] = [:]
     @State private var aiSpeechLoadingMessageIDs: Set<UUID> = []
     @State private var activeAISpeechMessageID: UUID?
@@ -143,6 +144,25 @@ struct ChatView: View {
                 },
                 onSaveOption: { item, categoryIDs in
                     chatStore.saveNativeAlternative(item, originalText: message.text, categoryIDs: categoryIDs)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $pendingGrammarSaveRequest) { request in
+            GrammarCorrectionCategoryPickerSheet(
+                correctedText: request.correctedText,
+                originalText: request.originalText,
+                categories: chatStore.dictionaryCategories,
+                isAlreadySaved: chatStore.isSavedDictionaryText(request.correctedText),
+                onCreateCategory: { name in
+                    chatStore.createDictionaryCategory(named: name)
+                },
+                onSave: { selectedCategoryIDs in
+                    _ = chatStore.saveGrammarCorrection(request.correctedText, originalText: request.originalText, categoryIDs: selectedCategoryIDs)
+                },
+                onSaveWithoutCategory: {
+                    _ = chatStore.saveGrammarCorrection(request.correctedText, originalText: request.originalText)
                 }
             )
             .presentationDetents([.medium, .large])
@@ -375,7 +395,7 @@ struct ChatView: View {
                         nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
                         isImprovedExpressionSaved: isImprovedExpressionSaved(for: message),
                         onSaveImprovedExpression: { improvedText in
-                            saveImprovedExpression(improvedText, originalText: message.text)
+                            presentGrammarCorrectionCategoryPicker(correctedText: improvedText, originalText: message.text)
                         },
                         onTapNativeAlternatives: {
                             openNativeAlternatives(for: message)
@@ -413,13 +433,35 @@ struct ChatView: View {
 
     private func isImprovedExpressionSaved(for message: ChatMessage) -> Bool {
         guard message.role == .user else { return false }
-        guard case let .loaded(data) = feedbackStates[message.id] else { return false }
-        guard data.hasErrors, let improved = improvedExpression(from: data), !improved.isEmpty else { return false }
+        guard let improved = improvedExpressionForMessage(message), !improved.isEmpty else { return false }
         return chatStore.isSavedDictionaryText(improved)
     }
 
-    private func saveImprovedExpression(_ improvedText: String, originalText: String) {
-        _ = chatStore.saveGrammarCorrection(improvedText, originalText: originalText)
+    private func presentGrammarCorrectionCategoryPicker(correctedText: String, originalText: String) {
+        pendingGrammarSaveRequest = PendingGrammarSaveRequest(correctedText: correctedText, originalText: originalText)
+    }
+
+    private func improvedExpressionForMessage(_ message: ChatMessage) -> String? {
+        guard case let .loaded(data) = feedbackStates[message.id] else { return nil }
+        let source = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return nil }
+
+        let corrected = data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if data.hasErrors, !corrected.isEmpty, !isMinorSentenceDifference(source, corrected) {
+            return corrected
+        }
+
+        let naturalRewrite = data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !naturalRewrite.isEmpty, !isMinorSentenceDifference(source, naturalRewrite) {
+            return naturalRewrite
+        }
+
+        let naturalAlternative = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !naturalAlternative.isEmpty, !isMinorSentenceDifference(source, naturalAlternative) {
+            return naturalAlternative
+        }
+
+        return nil
     }
 
     private func toggleSearchVisibility() {
@@ -1175,6 +1217,12 @@ private struct UserMessageFeedbackCard: View {
     }
 }
 
+private struct PendingGrammarSaveRequest: Identifiable {
+    let id = UUID()
+    let correctedText: String
+    let originalText: String
+}
+
 private struct NativeAlternativesSheet: View {
     let originalText: String
     let state: NativeAlternativesLoadState
@@ -1539,5 +1587,174 @@ private struct NativeAlternativeCategoryPickerSheet: View {
     NavigationStack {
         ChatView(conversation: SampleData.conversations[0])
             .environmentObject(ChatStore())
+    }
+}
+
+
+private struct GrammarCorrectionCategoryPickerSheet: View {
+    let correctedText: String
+    let originalText: String
+    let categories: [DictionaryCategory]
+    let isAlreadySaved: Bool
+    let onCreateCategory: (String) -> DictionaryCategory?
+    let onSave: ([UUID]) -> Void
+    let onSaveWithoutCategory: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCategoryIDs: Set<UUID> = []
+    @State private var showAddAlert = false
+    @State private var newCategoryName = ""
+    @State private var categoryValidationErrorMessage = ""
+    @State private var showCategoryValidationErrorAlert = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("SAVE CORRECTED SENTENCE")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .tracking(0.5)
+                            Text(correctedText)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemBackground))
+                                )
+                        }
+
+                        if !originalText.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("ORIGINAL")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                                    .tracking(0.5)
+                                Text(originalText)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("CATEGORIES")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                                    .tracking(0.5)
+                                Spacer()
+                                Button("New") {
+                                    newCategoryName = ""
+                                    showAddAlert = true
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                            }
+
+                            if categories.isEmpty {
+                                Text("No categories yet. You can save without a category, or create one.")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color(uiColor: .secondarySystemBackground))
+                                    )
+                            } else {
+                                VStack(spacing: 8) {
+                                    ForEach(categories) { category in
+                                        Button(action: {
+                                            if selectedCategoryIDs.contains(category.id) {
+                                                selectedCategoryIDs.remove(category.id)
+                                            } else {
+                                                selectedCategoryIDs.insert(category.id)
+                                            }
+                                        }) {
+                                            HStack {
+                                                Text(category.name)
+                                                    .font(.system(size: 15, weight: .medium))
+                                                    .foregroundStyle(.primary)
+                                                Spacer()
+                                                Image(systemName: selectedCategoryIDs.contains(category.id) ? "checkmark.circle.fill" : "circle")
+                                                    .foregroundStyle(selectedCategoryIDs.contains(category.id) ? Color.blue : .secondary)
+                                            }
+                                            .padding(12)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .fill(Color(uiColor: .secondarySystemBackground))
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+
+                VStack(spacing: 10) {
+                    Button(action: {
+                        onSave(Array(selectedCategoryIDs))
+                        dismiss()
+                    }) {
+                        Text(isAlreadySaved ? "Already Saved" : "Save")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(isAlreadySaved ? Color.green : Color.blue)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        onSaveWithoutCategory()
+                        dismiss()
+                    }) {
+                        Text("Save without Category")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(uiColor: .secondarySystemBackground))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(16)
+                .background(Color(uiColor: .systemGroupedBackground))
+            }
+            .navigationTitle("Save corrected sentence")
+            .navigationBarTitleDisplayMode(.inline)
+            .alert("New Category", isPresented: $showAddAlert) {
+                TextField("Category name", text: $newCategoryName)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    if let category = onCreateCategory(newCategoryName) {
+                        selectedCategoryIDs.insert(category.id)
+                    } else {
+                        categoryValidationErrorMessage = "Category name is empty or already exists."
+                        showCategoryValidationErrorAlert = true
+                    }
+                }
+            } message: {
+                Text("Create a category for your dictionary.")
+            }
+            .alert("Category Error", isPresented: $showCategoryValidationErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(categoryValidationErrorMessage)
+            }
+        }
     }
 }
