@@ -68,7 +68,6 @@ final class ChatStore: ObservableObject {
         let currentMemorySummary = conversationMemoryByConversationID[conversation.id] ?? ""
         let currentMemoryProfile = conversationMemoryProfileByConversationID[conversation.id]
         let currentAIProfile = aiProfile(for: conversation.id, fallbackName: conversation.name)
-        let customSystemPrompt = currentAIProfile.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
 
         Task { [weak self] in
             guard let self else { return }
@@ -78,7 +77,7 @@ final class ChatStore: ObservableObject {
                     history: recentHistory,
                     memoryProfile: currentMemoryProfile,
                     memorySummary: currentMemorySummary,
-                    customSystemPrompt: customSystemPrompt.isEmpty ? nil : customSystemPrompt
+                    personaProfile: currentAIProfile.personaProfile
                 )
                 await MainActor.run {
                     self.appendMessage(ChatMessage(role: .ai, text: reply, timeText: self.currentTimeText()), to: conversation)
@@ -248,23 +247,18 @@ final class ChatStore: ObservableObject {
         avatarImageData: Data?,
         voicePreset: String,
         koreanTranslationSpeechLevel: AIProfileSettings.KoreanTranslationSpeechLevel,
-        systemPrompt: String
+        personaProfile: AIProfileSettings.PersonaProfile
     ) {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeName = trimmedName.isEmpty ? (conversations.first(where: { $0.id == conversationID })?.name ?? "AI") : trimmedName
         let safeVoice = AIProfileSettings.supportedVoicePresets.contains(voicePreset) ? voicePreset : "Kore"
-        let safeSystemPrompt = systemPrompt
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .prefix(2000)
 
         aiProfilesByConversationID[conversationID] = AIProfileSettings(
             name: safeName,
             avatarImageData: avatarImageData,
             voicePreset: safeVoice,
             koreanTranslationSpeechLevel: koreanTranslationSpeechLevel,
-            systemPrompt: String(safeSystemPrompt)
+            personaProfile: personaProfile
         )
 
         if let index = conversations.firstIndex(where: { $0.id == conversationID }) {

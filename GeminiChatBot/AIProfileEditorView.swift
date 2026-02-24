@@ -11,7 +11,7 @@ struct AIProfileEditorView: View {
 
     @State private var isEditing = false
     @State private var draftName = ""
-    @State private var draftSystemPrompt = ""
+    @State private var draftPersonaProfile = AIProfileSettings.PersonaProfile.default
     @State private var draftVoicePreset = "Kore"
     @State private var draftKoreanTranslationSpeechLevel: AIProfileSettings.KoreanTranslationSpeechLevel = .polite
     @State private var draftAvatarImageData: Data?
@@ -28,7 +28,7 @@ struct AIProfileEditorView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     profileHeaderCard
-                    systemPromptSection
+                    personalitySection
                     voicePresetSection
                     memoryDebugSection
                     if isEditing {
@@ -138,46 +138,50 @@ struct AIProfileEditorView: View {
         )
     }
 
-    private var systemPromptSection: some View {
+    private var personalitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("SYSTEM PROMPT")
+            Text("AI PERSONALITY")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.secondary)
                 .tracking(0.5)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Customize the AI's base chat style for this conversation.")
+                Text("Adjust how the AI talks using 5 tone sliders. Higher values mean stronger expression.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemBackground))
-
-                    if draftSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("Optional. Example: Be warm, playful, and ask one short follow-up question.")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .allowsHitTesting(false)
-                    }
-
-                    TextEditor(text: $draftSystemPrompt)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.primary)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                        .disabled(!isEditing)
-                        .opacity(isEditing ? 1 : 0.95)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                VStack(spacing: 10) {
+                    personaSliderRow(
+                        title: "Warmth",
+                        minLabel: "Cool",
+                        maxLabel: "Warm",
+                        value: personaBinding(\.warmth)
+                    )
+                    personaSliderRow(
+                        title: "Playfulness",
+                        minLabel: "Serious",
+                        maxLabel: "Playful",
+                        value: personaBinding(\.playfulness)
+                    )
+                    personaSliderRow(
+                        title: "Directness",
+                        minLabel: "Soft",
+                        maxLabel: "Direct",
+                        value: personaBinding(\.directness)
+                    )
+                    personaSliderRow(
+                        title: "Curiosity",
+                        minLabel: "Reserved",
+                        maxLabel: "Curious",
+                        value: personaBinding(\.curiosity)
+                    )
+                    personaSliderRow(
+                        title: "Reply Length",
+                        minLabel: "Short",
+                        maxLabel: "Detailed",
+                        value: personaBinding(\.verbosity)
+                    )
                 }
-                .frame(minHeight: 110, maxHeight: 140)
-
-                Text("Saved prompt is sent with /api/chat and merged with the default system prompt.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
             }
             .padding(14)
             .background(
@@ -190,6 +194,56 @@ struct AIProfileEditorView: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func personaBinding(_ keyPath: WritableKeyPath<AIProfileSettings.PersonaProfile, Int>) -> Binding<Int> {
+        Binding(
+            get: { draftPersonaProfile[keyPath: keyPath] },
+            set: { draftPersonaProfile[keyPath: keyPath] = min(5, max(1, $0)) }
+        )
+    }
+
+    private func personaSliderRow(
+        title: String,
+        minLabel: String,
+        maxLabel: String,
+        value: Binding<Int>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text("\(value.wrappedValue)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.blue)
+                    .frame(width: 22)
+            }
+
+            HStack(spacing: 8) {
+                Text(minLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
+
+                Slider(
+                    value: Binding<Double>(
+                        get: { Double(value.wrappedValue) },
+                        set: { value.wrappedValue = Int($0.rounded()) }
+                    ),
+                    in: 1...5,
+                    step: 1
+                )
+                .disabled(!isEditing)
+
+                Text(maxLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .trailing)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private var voicePresetSection: some View {
@@ -412,7 +466,7 @@ struct AIProfileEditorView: View {
     private func loadDraft() {
         let profile = currentProfile
         draftName = profile.name
-        draftSystemPrompt = profile.systemPrompt
+        draftPersonaProfile = profile.personaProfile
         draftVoicePreset = profile.voicePreset
         draftKoreanTranslationSpeechLevel = profile.koreanTranslationSpeechLevel
         draftAvatarImageData = profile.avatarImageData
@@ -425,7 +479,7 @@ struct AIProfileEditorView: View {
             avatarImageData: draftAvatarImageData,
             voicePreset: draftVoicePreset,
             koreanTranslationSpeechLevel: draftKoreanTranslationSpeechLevel,
-            systemPrompt: draftSystemPrompt
+            personaProfile: draftPersonaProfile
         )
         isEditing = false
     }

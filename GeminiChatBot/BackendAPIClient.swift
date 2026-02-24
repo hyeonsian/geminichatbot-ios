@@ -87,7 +87,7 @@ private struct ChatRequest: Encodable {
     let history: [BackendChatHistoryItem]?
     let memorySummary: String?
     let memoryProfile: ConversationMemoryProfile?
-    let customSystemPrompt: String?
+    let personaProfile: AIProfileSettings.PersonaProfile?
     let model: String?
 }
 
@@ -211,17 +211,16 @@ final class BackendAPIClient {
         history: [BackendChatHistoryItem] = [],
         memoryProfile: ConversationMemoryProfile? = nil,
         memorySummary: String? = nil,
-        customSystemPrompt: String? = nil,
+        personaProfile: AIProfileSettings.PersonaProfile? = nil,
         model: String? = nil
     ) async throws -> String {
         let normalizedSummary = memorySummary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCustomPrompt = customSystemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
         let req = ChatRequest(
             message: message,
             history: history.isEmpty ? nil : history,
             memorySummary: normalizedSummary?.isEmpty == false ? normalizedSummary : nil,
             memoryProfile: memoryProfile?.isEmpty == false ? memoryProfile : nil,
-            customSystemPrompt: normalizedCustomPrompt?.isEmpty == false ? normalizedCustomPrompt : nil,
+            personaProfile: personaProfile,
             model: model
         )
         let response = try await post(path: "/api/chat", body: req, responseType: ChatResponse.self)

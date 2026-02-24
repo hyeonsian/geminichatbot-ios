@@ -100,6 +100,34 @@ struct DictionaryCategory: Identifiable, Hashable, Codable {
 }
 
 struct AIProfileSettings: Hashable, Codable {
+    struct PersonaProfile: Hashable, Codable {
+        var warmth: Int
+        var playfulness: Int
+        var directness: Int
+        var curiosity: Int
+        var verbosity: Int
+
+        init(
+            warmth: Int = 4,
+            playfulness: Int = 3,
+            directness: Int = 3,
+            curiosity: Int = 4,
+            verbosity: Int = 2
+        ) {
+            self.warmth = Self.clamp(warmth)
+            self.playfulness = Self.clamp(playfulness)
+            self.directness = Self.clamp(directness)
+            self.curiosity = Self.clamp(curiosity)
+            self.verbosity = Self.clamp(verbosity)
+        }
+
+        private static func clamp(_ value: Int) -> Int {
+            min(5, max(1, value))
+        }
+
+        static let `default` = PersonaProfile()
+    }
+
     enum KoreanTranslationSpeechLevel: String, Hashable, Codable, CaseIterable {
         case polite
         case casual
@@ -116,20 +144,20 @@ struct AIProfileSettings: Hashable, Codable {
     var avatarImageData: Data?
     var voicePreset: String
     var koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel
-    var systemPrompt: String
+    var personaProfile: PersonaProfile
 
     init(
         name: String,
         avatarImageData: Data? = nil,
         voicePreset: String = "Kore",
         koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel = .polite,
-        systemPrompt: String = ""
+        personaProfile: PersonaProfile = .default
     ) {
         self.name = name
         self.avatarImageData = avatarImageData
         self.voicePreset = voicePreset
         self.koreanTranslationSpeechLevel = koreanTranslationSpeechLevel
-        self.systemPrompt = systemPrompt
+        self.personaProfile = personaProfile
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -137,7 +165,7 @@ struct AIProfileSettings: Hashable, Codable {
         case avatarImageData
         case voicePreset
         case koreanTranslationSpeechLevel
-        case systemPrompt
+        case personaProfile
     }
 
     init(from decoder: Decoder) throws {
@@ -146,7 +174,7 @@ struct AIProfileSettings: Hashable, Codable {
         avatarImageData = try container.decodeIfPresent(Data.self, forKey: .avatarImageData)
         voicePreset = try container.decodeIfPresent(String.self, forKey: .voicePreset) ?? "Kore"
         koreanTranslationSpeechLevel = try container.decodeIfPresent(KoreanTranslationSpeechLevel.self, forKey: .koreanTranslationSpeechLevel) ?? .polite
-        systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
+        personaProfile = try container.decodeIfPresent(PersonaProfile.self, forKey: .personaProfile) ?? .default
     }
 
     static let supportedVoicePresets: [String] = [
