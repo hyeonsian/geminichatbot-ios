@@ -534,6 +534,62 @@ struct ChatView: View {
         normalizedSentenceKey(lhs) == normalizedSentenceKey(rhs)
     }
 
+    private func normalizedReplacement(from rawFix: String, part: String) -> String? {
+        let raw = rawFix.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return nil }
+
+        if let addQuoted = firstQuotedPhrase(in: raw, afterPrefix: "add") {
+            let merged = "\(part) \(addQuoted)".replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            return merged.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let useQuoted = firstQuotedPhrase(in: raw, afterPrefix: "use") {
+            return useQuoted
+        }
+
+        if let removeQuoted = firstQuotedPhrase(in: raw, afterPrefix: "remove")
+            ?? firstQuotedPhrase(in: raw, afterPrefix: "delete")
+            ?? firstQuotedPhrase(in: raw, afterPrefix: "omit") {
+            if let removed = removingQuotedPhrase(removeQuoted, from: part) {
+                return removed
+            }
+        }
+
+        if raw.count <= 36 {
+            return raw
+        }
+        return nil
+    }
+
+    private func firstQuotedPhrase(in text: String, afterPrefix prefix: String) -> String? {
+        let pattern = "(?i)\\b" + NSRegularExpression.escapedPattern(for: prefix) + "\\b\\s+['\"]([^'\"]+)['\"]"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        guard let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 else { return nil }
+        let quoted = (text as NSString).substring(with: match.range(at: 1))
+        return quoted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func removingQuotedPhrase(_ quoted: String, from part: String) -> String? {
+        let removed = replacingFirstCaseInsensitive(in: part, target: quoted, replacement: "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+([,?.!])", with: "$1", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !removed.isEmpty else { return nil }
+        return removed
+    }
+
+    private func replacingFirstCaseInsensitive(in source: String, target: String, replacement: String) -> String {
+        guard !target.isEmpty else { return source }
+        let escaped = NSRegularExpression.escapedPattern(for: target)
+        guard let regex = try? NSRegularExpression(pattern: escaped, options: [.caseInsensitive]) else { return source }
+        let range = NSRange(location: 0, length: (source as NSString).length)
+        guard let match = regex.firstMatch(in: source, options: [], range: range) else { return source }
+        let ns = source as NSString
+        let result = ns.replacingCharacters(in: match.range, with: replacement)
+        return result
+    }
+
     private func toggleSearchVisibility() {
         withAnimation(.easeInOut(duration: 0.18)) {
             isSearchVisible.toggle()
