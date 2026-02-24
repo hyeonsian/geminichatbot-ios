@@ -513,6 +513,50 @@ private struct DictionaryEntryCard: View {
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if entry.kind == .native, let variants = entry.nativeVariants, !variants.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Variants (\(variants.count))")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(variants) { variant in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("•")
+                                        .foregroundStyle(.secondary)
+                                    Text(variant.text)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                if !variant.tone.isEmpty || !variant.nuance.isEmpty {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        if !variant.tone.isEmpty {
+                                            Text(variant.tone)
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(Color.blue)
+                                        }
+                                        if !variant.nuance.isEmpty {
+                                            Text(variant.nuance)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                    .padding(.leading, 14)
+                                }
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+                }
+            }
+
             if !entry.tone.isEmpty || !entry.nuance.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     if !entry.tone.isEmpty {

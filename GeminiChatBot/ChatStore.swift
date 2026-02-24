@@ -118,19 +118,56 @@ final class ChatStore: ObservableObject {
     }
 
     func saveNativeAlternative(_ item: NativeAlternativeItem, originalText: String, categoryIDs: [UUID] = []) -> Bool {
-        let normalizedTarget = normalizeDictionaryText(item.text)
+        let trimmedText = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOriginal = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTarget = normalizeDictionaryText(trimmedText)
         guard !normalizedTarget.isEmpty else { return false }
-        if dictionaryEntries.contains(where: { normalizeDictionaryText($0.text) == normalizedTarget }) {
-            return false
+        guard !isSavedDictionaryText(trimmedText) else { return false }
+
+        let validCategoryIDs = Array(Set(categoryIDs.filter { id in
+            dictionaryCategories.contains(where: { $0.id == id })
+        }))
+
+        let normalizedOriginal = normalizeDictionaryText(trimmedOriginal)
+        if !normalizedOriginal.isEmpty,
+           let existingIndex = dictionaryEntries.firstIndex(where: { entry in
+               entry.kind == .native && normalizeDictionaryText(entry.originalText) == normalizedOriginal
+           }) {
+            let entry = dictionaryEntries.remove(at: existingIndex)
+            let existingVariants = entry.nativeVariants ?? []
+            let newVariant = DictionaryEntry.NativeVariant(
+                text: trimmedText,
+                tone: item.tone,
+                nuance: item.nuance
+            )
+            var mergedVariants = existingVariants + [newVariant]
+            mergedVariants = deduplicatedNativeVariants(mergedVariants, excludingPrimaryText: entry.text)
+
+            let mergedCategoryIDs = Array(Set(entry.categoryIDs + validCategoryIDs))
+            let updated = DictionaryEntry(
+                id: entry.id,
+                kind: entry.kind,
+                text: entry.text,
+                originalText: entry.originalText,
+                tone: entry.tone,
+                nuance: entry.nuance,
+                createdAt: entry.createdAt,
+                categoryIDs: mergedCategoryIDs,
+                nativeVariants: mergedVariants.isEmpty ? nil : mergedVariants,
+                grammarCorrections: entry.grammarCorrections
+            )
+            dictionaryEntries.insert(updated, at: 0)
+            persistState()
+            return true
         }
 
         let entry = DictionaryEntry(
             kind: .native,
-            text: item.text.trimmingCharacters(in: .whitespacesAndNewlines),
-            originalText: originalText.trimmingCharacters(in: .whitespacesAndNewlines),
+            text: trimmedText,
+            originalText: trimmedOriginal,
             tone: item.tone,
             nuance: item.nuance,
-            categoryIDs: categoryIDs
+            categoryIDs: validCategoryIDs
         )
         dictionaryEntries.insert(entry, at: 0)
         persistState()
@@ -166,7 +203,10 @@ final class ChatStore: ObservableObject {
     func isSavedDictionaryText(_ text: String) -> Bool {
         let normalizedTarget = normalizeDictionaryText(text)
         guard !normalizedTarget.isEmpty else { return false }
-        return dictionaryEntries.contains(where: { normalizeDictionaryText($0.text) == normalizedTarget })
+        return dictionaryEntries.contains(where: { entry in
+            if normalizeDictionaryText(entry.text) == normalizedTarget { return true }
+            return (entry.nativeVariants ?? []).contains { normalizeDictionaryText($0.text) == normalizedTarget }
+        })
     }
 
     func filteredDictionaryEntries() -> [DictionaryEntry] {
@@ -224,6 +264,7 @@ final class ChatStore: ObservableObject {
                 nuance: entry.nuance,
                 createdAt: entry.createdAt,
                 categoryIDs: nextIDs,
+                nativeVariants: entry.nativeVariants,
                 grammarCorrections: entry.grammarCorrections
             )
         }
@@ -247,6 +288,7 @@ final class ChatStore: ObservableObject {
             nuance: entry.nuance,
             createdAt: entry.createdAt,
             categoryIDs: uniqueIDs,
+            nativeVariants: entry.nativeVariants,
             grammarCorrections: entry.grammarCorrections
         )
         persistState()
@@ -255,6 +297,22 @@ final class ChatStore: ObservableObject {
     func deleteDictionaryEntry(_ entryID: UUID) {
         dictionaryEntries.removeAll { $0.id == entryID }
         persistState()
+    }
+
+    private func deduplicatedNativeVariants(
+        _ variants: [DictionaryEntry.NativeVariant],
+        excludingPrimaryText primaryText: String
+    ) -> [DictionaryEntry.NativeVariant] {
+        let primaryKey = normalizeDictionaryText(primaryText)
+        var seen = Set<String>()
+        var result: [DictionaryEntry.NativeVariant] = []
+        for variant in variants {
+            let key = normalizeDictionaryText(variant.text)
+            if key.isEmpty || key == primaryKey || seen.contains(key) { continue }
+            seen.insert(key)
+            result.append(variant)
+        }
+        return result
     }
 
     func setDictionaryCategoryFilter(_ filter: DictionaryCategoryFilter) {
