@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 import AVFoundation
-import Speech
 
 private final class ChatAudioPlayerDelegateProxy: NSObject, AVAudioPlayerDelegate {
     var onFinish: (() -> Void)?
@@ -13,148 +12,6 @@ private final class ChatAudioPlayerDelegateProxy: NSObject, AVAudioPlayerDelegat
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         onDecodeError?()
-    }
-}
-
-@MainActor
-private final class SpeechToTextService: ObservableObject {
-    @Published var isRecording = false
-    @Published var transcript = ""
-    @Published var errorMessage: String?
-
-    private let recognizer: SFSpeechRecognizer?
-    private let audioEngine = AVAudioEngine()
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var didRequestPermissions = false
-    private var isManuallyStopping = false
-
-    init(localeIdentifier: String = "en-US") {
-        self.recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier))
-    }
-
-    func start(seedText: String = "") async {
-        errorMessage = nil
-
-        guard await ensurePermissions() else { return }
-        guard let recognizer, recognizer.isAvailable else {
-            errorMessage = "Speech recognition is unavailable right now."
-            return
-        }
-
-        stop()
-        transcript = seedText
-
-        do {
-            isManuallyStopping = false
-            #if os(iOS)
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-            #endif
-
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.shouldReportPartialResults = true
-            if #available(iOS 16, macOS 13, *) {
-                request.addsPunctuation = false
-            }
-            recognitionRequest = request
-
-            let inputNode = audioEngine.inputNode
-            inputNode.removeTap(onBus: 0)
-            let format = inputNode.outputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                self?.recognitionRequest?.append(buffer)
-            }
-
-            audioEngine.prepare()
-            try audioEngine.start()
-            isRecording = true
-
-            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self else { return }
-                Task { @MainActor in
-                    if let result {
-                        self.transcript = result.bestTranscription.formattedString
-                        if result.isFinal {
-                            self.stop()
-                        }
-                    }
-
-                    if let error {
-                        if !self.isManuallyStopping {
-                            self.errorMessage = error.localizedDescription
-                        }
-                        self.stop()
-                    }
-                }
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            stop()
-        }
-    }
-
-    func stop() {
-        isManuallyStopping = true
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-        isRecording = false
-
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        #endif
-    }
-
-    private func ensurePermissions() async -> Bool {
-        guard recognizer != nil else {
-            errorMessage = "Speech recognition is not supported on this device."
-            return false
-        }
-
-        if !didRequestPermissions {
-            didRequestPermissions = true
-        }
-
-        let speechAuthorized = await requestSpeechAuthorization()
-        guard speechAuthorized else {
-            errorMessage = "Speech recognition permission is needed."
-            return false
-        }
-
-        let micAuthorized = await requestMicrophoneAuthorization()
-        guard micAuthorized else {
-            errorMessage = "Microphone permission is needed."
-            return false
-        }
-
-        return true
-    }
-
-    private func requestSpeechAuthorization() async -> Bool {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
-            }
-        }
-    }
-
-    private func requestMicrophoneAuthorization() async -> Bool {
-        #if os(iOS)
-        return await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
-        #else
-        return true
-        #endif
     }
 }
 
@@ -243,7 +100,7 @@ struct ChatView: View {
         .toolbar(.hidden, for: .navigationBar)
         .onDisappear {
             stopAISpeechPlayback()
-            speechToText.stop()
+            speechToText.stopRecording()
         }
         .onChange(of: speechToText.transcript) { transcript in
             if speechToText.isRecording || !transcript.isEmpty {
@@ -477,15 +334,13 @@ struct ChatView: View {
 
     private func handlePrimaryInputAction() {
         if speechToText.isRecording {
-            speechToText.stop()
+            speechToText.stopRecording()
             return
         }
 
         let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            Task {
-                await speechToText.start(seedText: "")
-            }
+            speechToText.startRecording(initialText: "")
             return
         }
 
@@ -495,10 +350,10 @@ struct ChatView: View {
     private func sendMessage() {
         let trimmed = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        speechToText.stop()
+        speechToText.stopRecording()
         chatStore.sendUserMessage(trimmed, in: conversation)
         messageText = ""
-        speechToText.transcript = ""
+        speechToText.clearTranscript()
     }
 
     @ViewBuilder
