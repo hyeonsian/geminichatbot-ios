@@ -328,8 +328,8 @@ struct ChatView: View {
     }
 
     private var sendButtonColor: Color {
-        if speechToText.isRecording { return .red }
-        messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .blue
+        if speechToText.isRecording { return Color.red }
+        return messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.blue
     }
 
     private func handlePrimaryInputAction() {
