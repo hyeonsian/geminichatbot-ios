@@ -116,17 +116,20 @@ struct AIProfileSettings: Hashable, Codable {
     var avatarImageData: Data?
     var voicePreset: String
     var koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel
+    var systemPrompt: String
 
     init(
         name: String,
         avatarImageData: Data? = nil,
         voicePreset: String = "Kore",
-        koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel = .polite
+        koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel = .polite,
+        systemPrompt: String = ""
     ) {
         self.name = name
         self.avatarImageData = avatarImageData
         self.voicePreset = voicePreset
         self.koreanTranslationSpeechLevel = koreanTranslationSpeechLevel
+        self.systemPrompt = systemPrompt
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -134,6 +137,7 @@ struct AIProfileSettings: Hashable, Codable {
         case avatarImageData
         case voicePreset
         case koreanTranslationSpeechLevel
+        case systemPrompt
     }
 
     init(from decoder: Decoder) throws {
@@ -142,6 +146,7 @@ struct AIProfileSettings: Hashable, Codable {
         avatarImageData = try container.decodeIfPresent(Data.self, forKey: .avatarImageData)
         voicePreset = try container.decodeIfPresent(String.self, forKey: .voicePreset) ?? "Kore"
         koreanTranslationSpeechLevel = try container.decodeIfPresent(KoreanTranslationSpeechLevel.self, forKey: .koreanTranslationSpeechLevel) ?? .polite
+        systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
     }
 
     static let supportedVoicePresets: [String] = [

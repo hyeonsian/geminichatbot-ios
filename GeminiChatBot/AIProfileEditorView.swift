@@ -11,6 +11,7 @@ struct AIProfileEditorView: View {
 
     @State private var isEditing = false
     @State private var draftName = ""
+    @State private var draftSystemPrompt = ""
     @State private var draftVoicePreset = "Kore"
     @State private var draftKoreanTranslationSpeechLevel: AIProfileSettings.KoreanTranslationSpeechLevel = .polite
     @State private var draftAvatarImageData: Data?
@@ -27,6 +28,7 @@ struct AIProfileEditorView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     profileHeaderCard
+                    systemPromptSection
                     voicePresetSection
                     memoryDebugSection
                     if isEditing {
@@ -134,6 +136,60 @@ struct AIProfileEditorView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(uiColor: .systemBackground))
         )
+    }
+
+    private var systemPromptSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("SYSTEM PROMPT")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Customize the AI's base chat style for this conversation.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+
+                    if draftSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Optional. Example: Be warm, playful, and ask one short follow-up question.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .allowsHitTesting(false)
+                    }
+
+                    TextEditor(text: $draftSystemPrompt)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.primary)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                        .disabled(!isEditing)
+                        .opacity(isEditing ? 1 : 0.95)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                }
+                .frame(minHeight: 110, maxHeight: 140)
+
+                Text("Saved prompt is sent with /api/chat and merged with the default system prompt.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(uiColor: .systemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.blue.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var voicePresetSection: some View {
@@ -356,6 +412,7 @@ struct AIProfileEditorView: View {
     private func loadDraft() {
         let profile = currentProfile
         draftName = profile.name
+        draftSystemPrompt = profile.systemPrompt
         draftVoicePreset = profile.voicePreset
         draftKoreanTranslationSpeechLevel = profile.koreanTranslationSpeechLevel
         draftAvatarImageData = profile.avatarImageData
@@ -367,7 +424,8 @@ struct AIProfileEditorView: View {
             name: draftName,
             avatarImageData: draftAvatarImageData,
             voicePreset: draftVoicePreset,
-            koreanTranslationSpeechLevel: draftKoreanTranslationSpeechLevel
+            koreanTranslationSpeechLevel: draftKoreanTranslationSpeechLevel,
+            systemPrompt: draftSystemPrompt
         )
         isEditing = false
     }
