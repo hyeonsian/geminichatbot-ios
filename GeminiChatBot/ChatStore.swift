@@ -10,6 +10,7 @@ final class ChatStore: ObservableObject {
         let dictionaryCategories: [DictionaryCategory]
         let aiProfilesByConversationID: [UUID: AIProfileSettings]?
         let conversationMemoryByConversationID: [UUID: String]?
+        let conversationMemoryHistorySignatureByConversationID: [UUID: String]?
     }
 
     enum CategoryNameValidationError: LocalizedError {
@@ -36,6 +37,7 @@ final class ChatStore: ObservableObject {
     @Published private(set) var aiProfilesByConversationID: [UUID: AIProfileSettings] = [:]
     @Published private(set) var conversationMemoryByConversationID: [UUID: String] = [:]
     @Published private(set) var conversationMemorySyncStatusByConversationID: [UUID: String] = [:]
+    private var conversationMemoryHistorySignatureByConversationID: [UUID: String] = [:]
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
 
     init(conversations: [Conversation] = SampleData.conversations, userDefaults: UserDefaults = .standard) {
@@ -382,6 +384,12 @@ final class ChatStore: ObservableObject {
             return
         }
 
+        let historySignature = historySignatureForMemorySync(history)
+        if conversationMemoryHistorySignatureByConversationID[conversationID] == historySignature {
+            conversationMemorySyncStatusByConversationID[conversationID] = "No new messages since last memory sync."
+            return
+        }
+
         let currentSummary = conversationMemoryByConversationID[conversationID] ?? ""
         conversationMemorySyncStatusByConversationID[conversationID] = "Syncing memory..."
         Task { [weak self] in
@@ -393,13 +401,14 @@ final class ChatStore: ObservableObject {
                 )
                 await MainActor.run {
                     let normalized = updated.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard normalized != currentSummary else { return }
                     if normalized.isEmpty {
                         self.conversationMemoryByConversationID.removeValue(forKey: conversationID)
                     } else {
                         self.conversationMemoryByConversationID[conversationID] = normalized
                     }
-                    self.conversationMemorySyncStatusByConversationID[conversationID] = "Last sync succeeded."
+                    self.conversationMemoryHistorySignatureByConversationID[conversationID] = historySignature
+                    self.conversationMemorySyncStatusByConversationID[conversationID] =
+                        normalized == currentSummary ? "No new memory info detected." : "Last sync succeeded."
                     self.persistState()
                 }
             } catch {
@@ -428,6 +437,7 @@ final class ChatStore: ObservableObject {
             dictionaryCategories = decoded.dictionaryCategories
             aiProfilesByConversationID = decoded.aiProfilesByConversationID ?? [:]
             conversationMemoryByConversationID = decoded.conversationMemoryByConversationID ?? [:]
+            conversationMemoryHistorySignatureByConversationID = decoded.conversationMemoryHistorySignatureByConversationID ?? [:]
         } catch {
             print("ChatStore persistence load failed:", error)
         }
@@ -441,7 +451,8 @@ final class ChatStore: ObservableObject {
             dictionaryCategories: dictionaryCategories,
             aiProfilesByConversationID: aiProfilesByConversationID
             ,
-            conversationMemoryByConversationID: conversationMemoryByConversationID
+            conversationMemoryByConversationID: conversationMemoryByConversationID,
+            conversationMemoryHistorySignatureByConversationID: conversationMemoryHistorySignatureByConversationID
         )
         do {
             let data = try JSONEncoder().encode(snapshot)
@@ -462,5 +473,11 @@ final class ChatStore: ObservableObject {
         if changed {
             persistState()
         }
+    }
+
+    private func historySignatureForMemorySync(_ history: [BackendChatHistoryItem]) -> String {
+        history
+            .map { "\($0.role)|\($0.text)" }
+            .joined(separator: "\n")
     }
 }
