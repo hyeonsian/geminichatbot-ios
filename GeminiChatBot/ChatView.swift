@@ -534,14 +534,6 @@ struct ChatView: View {
         normalizedSentenceKey(lhs) == normalizedSentenceKey(rhs)
     }
 
-    private func normalizedTextKey(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .lowercased()
-    }
-
     private func normalizedReplacement(from rawFix: String, part: String) -> String? {
         let raw = rawFix.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty { return nil }
@@ -597,6 +589,736 @@ struct ChatView: View {
         let result = ns.replacingCharacters(in: match.range, with: replacement)
         return result
     }
+
+    private func toggleSearchVisibility() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isSearchVisible.toggle()
+        }
+    }
+
+    private func toggleAITranslation(for message: ChatMessage) {
+        guard message.role == .ai else { return }
+
+        switch aiTranslationStates[message.id] ?? .idle {
+        case .shown(let text):
+            withAnimation(.easeInOut(duration: 0.22)) {
+                aiTranslationStates[message.id] = .hidden(text)
+            }
+            return
+        case .hidden(let text):
+            withAnimation(.easeInOut(duration: 0.22)) {
+                aiTranslationStates[message.id] = .shown(text)
+            }
+            return
+        case .loading:
+            return
+        case .failed:
+            break
+        case .idle:
+            break
+        }
+
+        aiTranslationStates[message.id] = .loading
+
+        Task {
+            do {
+                let translation = try await BackendAPIClient.shared.translate(
+                    text: message.text,
+                    targetLang: "Korean",
+                    koreanSpeechLevel: currentAIProfile.koreanTranslationSpeechLevel
+                )
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        aiTranslationStates[message.id] = .shown(translation)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        aiTranslationStates[message.id] = .failed(error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleAISpeech(for message: ChatMessage) {
+        guard message.role == .ai else { return }
+
+        if activeAISpeechMessageID == message.id {
+            stopAISpeechPlayback()
+            return
+        }
+
+        stopAISpeechPlayback()
+
+        if let cached = aiSpeechAudioCache[message.id] {
+            playAISpeechAudio(cached, for: message.id)
+            return
+        }
+
+        aiSpeechLoadingMessageIDs.insert(message.id)
+        Task {
+            do {
+                let audioData = try await BackendAPIClient.shared.ttsAudio(
+                    text: message.text,
+                    voiceName: currentAIProfile.voicePreset,
+                    style: "Read this naturally like a friendly native English speaker in a casual chat."
+                )
+                await MainActor.run {
+                    aiSpeechLoadingMessageIDs.remove(message.id)
+                    aiSpeechAudioCache[message.id] = audioData
+                    playAISpeechAudio(audioData, for: message.id)
+                }
+            } catch {
+                await MainActor.run {
+                    aiSpeechLoadingMessageIDs.remove(message.id)
+                    activeAISpeechMessageID = nil
+                }
+                print("TTS playback error:", error.localizedDescription)
+            }
+        }
+    }
+
+    private func playAISpeechAudio(_ data: Data, for messageID: UUID) {
+        do {
+            let player = try AVAudioPlayer(data: data)
+            audioPlayerDelegateProxy.onFinish = { [messageID] in
+                Task { @MainActor in
+                    if activeAISpeechMessageID == messageID {
+                        activeAISpeechMessageID = nil
+                        aiSpeechPlayer = nil
+                    }
+                }
+            }
+            audioPlayerDelegateProxy.onDecodeError = {
+                Task { @MainActor in
+                    activeAISpeechMessageID = nil
+                    aiSpeechPlayer = nil
+                }
+            }
+            player.delegate = audioPlayerDelegateProxy
+            player.prepareToPlay()
+            activeAISpeechMessageID = messageID
+            aiSpeechPlayer = player
+            _ = player.play()
+        } catch {
+            activeAISpeechMessageID = nil
+            aiSpeechPlayer = nil
+            print("AVAudioPlayer init failed:", error.localizedDescription)
+        }
+    }
+
+    private func stopAISpeechPlayback() {
+        aiSpeechPlayer?.stop()
+        aiSpeechPlayer?.delegate = nil
+        aiSpeechPlayer = nil
+        activeAISpeechMessageID = nil
+    }
+
+    private func isTranslationLoading(for message: ChatMessage) -> Bool {
+        guard message.role == .ai else { return false }
+        if case .loading = aiTranslationStates[message.id] { return true }
+        return false
+    }
+
+    private func translationVisibleText(for message: ChatMessage) -> String? {
+        guard message.role == .ai else { return nil }
+        if case let .shown(text) = aiTranslationStates[message.id] {
+            return text
+        }
+        return nil
+    }
+
+    private func translationErrorText(for message: ChatMessage) -> String? {
+        guard message.role == .ai else { return nil }
+        if case let .failed(text) = aiTranslationStates[message.id] {
+            return text
+        }
+        return nil
+    }
+
+    private func isAISpeechLoading(for message: ChatMessage) -> Bool {
+        guard message.role == .ai else { return false }
+        return aiSpeechLoadingMessageIDs.contains(message.id)
+    }
+
+    private func isAISpeaking(for message: ChatMessage) -> Bool {
+        guard message.role == .ai else { return false }
+        return activeAISpeechMessageID == message.id
+    }
+
+    private func handleMessageTap(_ message: ChatMessage) {
+        guard message.role == .user else { return }
+
+        if selectedUserMessageID == message.id {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedUserMessageID = nil
+            }
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.18)) {
+            selectedUserMessageID = message.id
+        }
+
+        if case .some(.loaded(_)) = feedbackStates[message.id] {
+            return
+        }
+        if case .some(.loading) = feedbackStates[message.id] {
+            return
+        }
+
+        feedbackStates[message.id] = .loading
+        Task {
+            do {
+                let response = try await BackendAPIClient.shared.grammarFeedback(text: message.text)
+                await MainActor.run {
+                    feedbackStates[message.id] = .loaded(response)
+                }
+            } catch {
+                await MainActor.run {
+                    feedbackStates[message.id] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        guard let lastId = chatStore.messages(for: conversation).last?.id else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(lastId, anchor: .bottom)
+            }
+        }
+    }
+
+    private var searchResultCounterText: String {
+        guard !searchMatchMessageIDs.isEmpty else { return "0/0" }
+        return "\(selectedSearchResultIndex + 1)/\(searchMatchMessageIDs.count)"
+    }
+
+    private func syncSearchSelection() {
+        if searchMatchMessageIDs.isEmpty {
+            selectedSearchResultIndex = 0
+            return
+        }
+        if selectedSearchResultIndex >= searchMatchMessageIDs.count {
+            selectedSearchResultIndex = searchMatchMessageIDs.count - 1
+        }
+        if selectedSearchResultIndex < 0 {
+            selectedSearchResultIndex = 0
+        }
+    }
+
+    private func moveSearchSelection(_ delta: Int, proxy: ScrollViewProxy) {
+        guard !searchMatchMessageIDs.isEmpty else { return }
+        let count = searchMatchMessageIDs.count
+        selectedSearchResultIndex = (selectedSearchResultIndex + delta + count) % count
+        scrollToSelectedSearchResult(proxy)
+    }
+
+    private func scrollToSelectedSearchResult(_ proxy: ScrollViewProxy) {
+        guard let targetID = selectedSearchMatchMessageID else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(targetID, anchor: .center)
+            }
+        }
+    }
+
+    private func openNativeAlternatives(for message: ChatMessage) {
+        guard message.role == .user else { return }
+        nativeAlternativesSheetMessage = message
+
+        if case .some(.loaded(_)) = nativeAlternativesStates[message.id] {
+            return
+        }
+        if case .some(.loading) = nativeAlternativesStates[message.id] {
+            return
+        }
+
+        nativeAlternativesStates[message.id] = .loading
+
+        Task {
+            do {
+                let items = try await BackendAPIClient.shared.nativeAlternatives(text: message.text)
+                let preferred = preferredNativeAlternative(from: feedbackStates[message.id])
+                let merged = mergeNativeAlternatives(items, preferred: preferred)
+                await MainActor.run {
+                    nativeAlternativesStates[message.id] = .loaded(merged)
+                }
+            } catch {
+                await MainActor.run {
+                    nativeAlternativesStates[message.id] = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func preferredNativeAlternative(from state: UserMessageFeedbackState?) -> NativeAlternativeItem? {
+        guard case let .some(.loaded(data)) = state else { return nil }
+        let text = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let nuance = data.naturalReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return NativeAlternativeItem(
+            text: text,
+            tone: "Most Common",
+            nuance: nuance.isEmpty ? "Simple everyday phrasing" : nuance
+        )
+    }
+
+    private func mergeNativeAlternatives(
+        _ items: [NativeAlternativeItem],
+        preferred: NativeAlternativeItem?
+    ) -> [NativeAlternativeItem] {
+        var merged: [NativeAlternativeItem] = []
+        var seen = Set<String>()
+
+        func appendIfNeeded(_ item: NativeAlternativeItem?) {
+            guard let item else { return }
+            let key = item.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+                .lowercased()
+            guard !key.isEmpty, !seen.contains(key) else { return }
+            seen.insert(key)
+            merged.append(item)
+        }
+
+        appendIfNeeded(preferred)
+        items.forEach { appendIfNeeded($0) }
+        return Array(merged.prefix(3))
+    }
+}
+
+private enum UserMessageFeedbackState {
+    case loading
+    case loaded(GrammarFeedbackResponse)
+    case failed(String)
+}
+
+private enum NativeAlternativesLoadState {
+    case idle
+    case loading
+    case loaded([NativeAlternativeItem])
+    case failed(String)
+}
+
+private enum AIMessageTranslationState {
+    case idle
+    case loading
+    case shown(String)
+    case hidden(String)
+    case failed(String)
+}
+
+private struct UserMessageFeedbackCard: View {
+    let originalText: String
+    let state: UserMessageFeedbackState
+    let nativeAlternativesState: NativeAlternativesLoadState
+    let isImprovedExpressionSaved: Bool
+    let onSaveImprovedExpression: (String) -> Void
+    let onTapNativeAlternatives: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("YOUR MESSAGE")
+            originalMessageBox
+
+            sectionLabel("NATIVE FEEDBACK")
+            feedbackBody
+
+            if case let .loaded(data) = state,
+               let improved = improvedExpression(from: data),
+               !improved.isEmpty {
+                sectionLabel("IMPROVED EXPRESSION")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(improved)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if data.hasErrors {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                onSaveImprovedExpression(improved)
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isImprovedExpressionSaved ? "checkmark" : "plus")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Text(isImprovedExpressionSaved ? "Saved to My Dictionary" : "Save corrected sentence")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundStyle(isImprovedExpressionSaved ? Color.green : Color.blue)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color(uiColor: .tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.blue.opacity(0.12), lineWidth: 1)
+                )
+            }
+
+            nativeAlternativesButton
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.blue.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.blue.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private var nativeAlternativesButton: some View {
+        Button(action: onTapNativeAlternatives) {
+            HStack(spacing: 8) {
+                if case .loading = nativeAlternativesState {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                Text(nativeAlternativesButtonLabel)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(Color.blue)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.blue.opacity(0.12), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled({
+            if case .loading = nativeAlternativesState { return true }
+            return false
+        }())
+    }
+
+    private var nativeAlternativesButtonLabel: String {
+        switch nativeAlternativesState {
+        case .idle:
+            return "Native alternatives"
+        case .loading:
+            return "Loading alternatives..."
+        case .loaded:
+            return "Open native alternatives"
+        case .failed:
+            return "Retry native alternatives"
+        }
+    }
+
+    @ViewBuilder
+    private var originalMessageBox: some View {
+        Group {
+            if case let .loaded(data) = state {
+                highlightedOriginalMessageText(highlights: highlightTerms(from: data))
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+            } else {
+                Text(originalText)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+        )
+    }
+
+    @ViewBuilder
+    private var feedbackBody: some View {
+        switch state {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking your sentence...")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 2)
+
+        case let .failed(message):
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundStyle(.red)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+
+        case let .loaded(data):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(data.feedback)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.primary)
+
+                if !data.feedbackPoints.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(Array(data.feedbackPoints.enumerated()), id: \.offset) { _, point in
+                            feedbackPointRow(point)
+                        }
+                    }
+                } else if !data.hasErrors {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(Color.green)
+                        Text("No grammar issues.")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(uiColor: .tertiarySystemBackground))
+                    )
+                }
+
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+        }
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.secondary)
+            .tracking(0.5)
+    }
+
+    private func highlightTerms(from data: GrammarFeedbackResponse) -> [String] {
+        let fromPoints = data.feedbackPoints.map { $0.part }
+        let fromEdits = data.edits.map { $0.wrong }
+        let all = (fromPoints + fromEdits)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+
+        var result: [String] = []
+        var seen = Set<String>()
+        for item in all {
+            let key = item.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            result.append(item)
+        }
+        return result
+    }
+
+    private func highlightedOriginalMessageText(highlights: [String]) -> Text {
+        let source = originalText
+        guard !source.isEmpty, !highlights.isEmpty else { return Text(source) }
+
+        let nsSource = source as NSString
+        var matches: [NSRange] = []
+
+        for term in highlights {
+            guard !term.isEmpty else { continue }
+            let escaped = NSRegularExpression.escapedPattern(for: term)
+            guard let regex = try? NSRegularExpression(pattern: escaped, options: [.caseInsensitive]) else { continue }
+            let found = regex.matches(in: source, options: [], range: NSRange(location: 0, length: nsSource.length))
+            matches.append(contentsOf: found.map(\.range))
+        }
+
+        if matches.isEmpty { return Text(source) }
+
+        matches.sort { a, b in
+            if a.location == b.location { return a.length > b.length }
+            return a.location < b.location
+        }
+
+        var nonOverlapping: [NSRange] = []
+        var lastEnd = 0
+        for range in matches {
+            guard range.location >= lastEnd else { continue }
+            nonOverlapping.append(range)
+            lastEnd = range.location + range.length
+        }
+
+        var text = Text("")
+        var cursor = 0
+        for range in nonOverlapping {
+            if range.location > cursor {
+                let prefix = nsSource.substring(with: NSRange(location: cursor, length: range.location - cursor))
+                text = text + Text(prefix)
+            }
+            let matched = nsSource.substring(with: range)
+            text = text + Text(matched).foregroundColor(.red).fontWeight(.semibold)
+            cursor = range.location + range.length
+        }
+        if cursor < nsSource.length {
+            let suffix = nsSource.substring(with: NSRange(location: cursor, length: nsSource.length - cursor))
+            text = text + Text(suffix)
+        }
+        return text
+    }
+
+    private func feedbackPointRow(_ point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            (
+                Text(point.part)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.red)
+                + Text(" → ")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.secondary)
+                + Text(feedbackFixPreview(for: point))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.green)
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            if let issue = point.issue, !issue.isEmpty {
+                Text(issue)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .tertiarySystemBackground))
+        )
+    }
+
+    private func feedbackFixPreview(for point: GrammarFeedbackResponse.GrammarFeedbackPoint) -> String {
+        let raw = (point.fix ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalized = normalizedReplacement(from: raw, part: point.part) {
+            return normalized
+        }
+        return raw.isEmpty ? "(improve)" : raw
+    }
+
+    private func improvedExpression(from data: GrammarFeedbackResponse) -> String? {
+        let source = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return nil }
+
+        var candidates: [String] = []
+
+        if data.hasErrors {
+            let corrected = data.correctedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !corrected.isEmpty && !isMinorSentenceDifference(source, corrected) {
+                candidates.append(corrected)
+            }
+        }
+
+        let viaEdits = applyEdits(source, edits: data.edits)
+        let viaPoints = applyFeedbackPoints(viaEdits, points: data.feedbackPoints)
+        if !viaPoints.isEmpty && !isMinorSentenceDifference(source, viaPoints) {
+            candidates.append(viaPoints)
+        }
+
+        let naturalRewrite = data.naturalRewrite.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !naturalRewrite.isEmpty && !isMinorSentenceDifference(source, naturalRewrite) {
+            candidates.append(naturalRewrite)
+        }
+
+        let naturalAlternative = data.naturalAlternative.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !naturalAlternative.isEmpty && !isMinorSentenceDifference(source, naturalAlternative) {
+            candidates.append(naturalAlternative)
+        }
+
+        var seen = Set<String>()
+        for item in candidates {
+            let key = normalizedTextKey(item)
+            if key.isEmpty || seen.contains(key) { continue }
+            seen.insert(key)
+            return item
+        }
+        return nil
+    }
+
+    private func applyEdits(_ source: String, edits: [GrammarFeedbackResponse.GrammarEdit]) -> String {
+        var text = source
+        let sorted = edits.sorted { $0.wrong.count > $1.wrong.count }
+        for edit in sorted {
+            let wrong = edit.wrong.trimmingCharacters(in: .whitespacesAndNewlines)
+            let right = edit.right.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wrong.isEmpty, !right.isEmpty else { continue }
+            text = replacingFirstCaseInsensitive(in: text, target: wrong, replacement: right)
+        }
+        return text
+    }
+
+    private func applyFeedbackPoints(_ source: String, points: [GrammarFeedbackResponse.GrammarFeedbackPoint]) -> String {
+        var text = source
+        let sorted = points.sorted { $0.part.count > $1.part.count }
+        for point in sorted {
+            let part = point.part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !part.isEmpty else { continue }
+            guard let replacement = normalizedReplacement(from: point.fix ?? "", part: part) else { continue }
+            if normalizedTextKey(replacement).isEmpty { continue }
+            text = replacingFirstCaseInsensitive(in: text, target: part, replacement: replacement)
+        }
+        return text
+    }
+
+
+        if let useQuoted = firstQuotedPhrase(in: raw, afterPrefix: "use") {
+            return useQuoted
+        }
+
+        if let removeQuoted = firstQuotedPhrase(in: raw, afterPrefix: "remove")
+            ?? firstQuotedPhrase(in: raw, afterPrefix: "delete")
+            ?? firstQuotedPhrase(in: raw, afterPrefix: "omit") {
+            if let removed = removingQuotedPhrase(removeQuoted, from: part) {
+                return removed
+            }
+        }
+
+        if raw.count <= 36 {
+            return raw
+        }
+        return nil
+    }
+
+
+    private func normalizedTextKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .lowercased()
+    }
+
 }
 
 private struct PendingGrammarSaveRequest: Identifiable {
