@@ -468,7 +468,7 @@ struct ChatView: View {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\s+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .lowercased()
     }
 
