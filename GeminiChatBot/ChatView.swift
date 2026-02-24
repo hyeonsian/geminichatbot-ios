@@ -1291,26 +1291,6 @@ private struct UserMessageFeedbackCard: View {
         return text
     }
 
-
-        if let useQuoted = firstQuotedPhrase(in: raw, afterPrefix: "use") {
-            return useQuoted
-        }
-
-        if let removeQuoted = firstQuotedPhrase(in: raw, afterPrefix: "remove")
-            ?? firstQuotedPhrase(in: raw, afterPrefix: "delete")
-            ?? firstQuotedPhrase(in: raw, afterPrefix: "omit") {
-            if let removed = removingQuotedPhrase(removeQuoted, from: part) {
-                return removed
-            }
-        }
-
-        if raw.count <= 36 {
-            return raw
-        }
-        return nil
-    }
-
-
     private func normalizedTextKey(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
