@@ -12,6 +12,7 @@ struct AIProfileEditorView: View {
     @State private var isEditing = false
     @State private var draftName = ""
     @State private var draftVoicePreset = "Kore"
+    @State private var draftKoreanTranslationSpeechLevel: AIProfileSettings.KoreanTranslationSpeechLevel = .polite
     @State private var draftAvatarImageData: Data?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var showClearHistoryConfirmation = false
@@ -164,6 +165,30 @@ struct AIProfileEditorView: View {
                 }
 
                 Text("Selecting a voice plays a short preview.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                Divider()
+                    .padding(.vertical, 2)
+
+                HStack(spacing: 8) {
+                    Text("Korean translation tone")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+
+                    Picker("Korean Translation Tone", selection: $draftKoreanTranslationSpeechLevel) {
+                        ForEach(AIProfileSettings.KoreanTranslationSpeechLevel.allCases, id: \.self) { tone in
+                            Text(tone.displayName).tag(tone)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 140)
+                    .disabled(!isEditing)
+                }
+
+                Text("Choose whether AI message translations appear in 존댓말 or 반말.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -346,6 +371,7 @@ struct AIProfileEditorView: View {
         let profile = currentProfile
         draftName = profile.name
         draftVoicePreset = profile.voicePreset
+        draftKoreanTranslationSpeechLevel = profile.koreanTranslationSpeechLevel
         draftAvatarImageData = profile.avatarImageData
     }
 
@@ -354,7 +380,8 @@ struct AIProfileEditorView: View {
             for: conversationID,
             name: draftName,
             avatarImageData: draftAvatarImageData,
-            voicePreset: draftVoicePreset
+            voicePreset: draftVoicePreset,
+            koreanTranslationSpeechLevel: draftKoreanTranslationSpeechLevel
         )
         isEditing = false
     }

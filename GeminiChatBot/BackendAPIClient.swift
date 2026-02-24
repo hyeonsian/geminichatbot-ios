@@ -78,6 +78,7 @@ private struct NativeAlternativesRequest: Encodable {
 private struct TranslateRequest: Encodable {
     let text: String
     let targetLang: String
+    let koreanSpeechLevel: String?
     let model: String?
 }
 
@@ -170,8 +171,18 @@ final class BackendAPIClient {
         return response.alternatives
     }
 
-    func translate(text: String, targetLang: String = "Korean", model: String? = nil) async throws -> String {
-        let req = TranslateRequest(text: text, targetLang: targetLang, model: model)
+    func translate(
+        text: String,
+        targetLang: String = "Korean",
+        koreanSpeechLevel: AIProfileSettings.KoreanTranslationSpeechLevel? = nil,
+        model: String? = nil
+    ) async throws -> String {
+        let req = TranslateRequest(
+            text: text,
+            targetLang: targetLang,
+            koreanSpeechLevel: koreanSpeechLevel?.rawValue,
+            model: model
+        )
         let response = try await post(path: "/api/translate", body: req, responseType: TranslateResponse.self)
         if response.translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw BackendAPIError.emptyResponse

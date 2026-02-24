@@ -243,7 +243,8 @@ final class ChatStore: ObservableObject {
         for conversationID: UUID,
         name rawName: String,
         avatarImageData: Data?,
-        voicePreset: String
+        voicePreset: String,
+        koreanTranslationSpeechLevel: AIProfileSettings.KoreanTranslationSpeechLevel
     ) {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeName = trimmedName.isEmpty ? (conversations.first(where: { $0.id == conversationID })?.name ?? "AI") : trimmedName
@@ -252,7 +253,8 @@ final class ChatStore: ObservableObject {
         aiProfilesByConversationID[conversationID] = AIProfileSettings(
             name: safeName,
             avatarImageData: avatarImageData,
-            voicePreset: safeVoice
+            voicePreset: safeVoice,
+            koreanTranslationSpeechLevel: koreanTranslationSpeechLevel
         )
 
         if let index = conversations.firstIndex(where: { $0.id == conversationID }) {

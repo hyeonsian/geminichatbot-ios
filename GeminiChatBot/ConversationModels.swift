@@ -100,14 +100,48 @@ struct DictionaryCategory: Identifiable, Hashable, Codable {
 }
 
 struct AIProfileSettings: Hashable, Codable {
+    enum KoreanTranslationSpeechLevel: String, Hashable, Codable, CaseIterable {
+        case polite
+        case casual
+
+        var displayName: String {
+            switch self {
+            case .polite: return "존댓말"
+            case .casual: return "반말"
+            }
+        }
+    }
+
     var name: String
     var avatarImageData: Data?
     var voicePreset: String
+    var koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel
 
-    init(name: String, avatarImageData: Data? = nil, voicePreset: String = "Kore") {
+    init(
+        name: String,
+        avatarImageData: Data? = nil,
+        voicePreset: String = "Kore",
+        koreanTranslationSpeechLevel: KoreanTranslationSpeechLevel = .polite
+    ) {
         self.name = name
         self.avatarImageData = avatarImageData
         self.voicePreset = voicePreset
+        self.koreanTranslationSpeechLevel = koreanTranslationSpeechLevel
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case avatarImageData
+        case voicePreset
+        case koreanTranslationSpeechLevel
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        avatarImageData = try container.decodeIfPresent(Data.self, forKey: .avatarImageData)
+        voicePreset = try container.decodeIfPresent(String.self, forKey: .voicePreset) ?? "Kore"
+        koreanTranslationSpeechLevel = try container.decodeIfPresent(KoreanTranslationSpeechLevel.self, forKey: .koreanTranslationSpeechLevel) ?? .polite
     }
 
     static let supportedVoicePresets: [String] = [

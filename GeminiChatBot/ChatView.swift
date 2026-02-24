@@ -436,7 +436,11 @@ struct ChatView: View {
 
         Task {
             do {
-                let translation = try await BackendAPIClient.shared.translate(text: message.text, targetLang: "Korean")
+                let translation = try await BackendAPIClient.shared.translate(
+                    text: message.text,
+                    targetLang: "Korean",
+                    koreanSpeechLevel: currentAIProfile.koreanTranslationSpeechLevel
+                )
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.22)) {
                         aiTranslationStates[message.id] = .shown(translation)
