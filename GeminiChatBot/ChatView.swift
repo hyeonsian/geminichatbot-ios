@@ -324,7 +324,7 @@ struct ChatView: View {
 
     private var sendButtonSymbol: String {
         if speechToText.isRecording { return "stop.circle.fill" }
-        messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mic.fill" : "arrow.up.circle.fill"
+        return messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mic.fill" : "arrow.up.circle.fill"
     }
 
     private var sendButtonColor: Color {
