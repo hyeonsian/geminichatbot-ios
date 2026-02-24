@@ -43,6 +43,16 @@ struct DictionaryView: View {
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         chatStore.promoteNativeVariantToPrimary(entryID: entry.id, variantID: variant.id)
                                     }
+                                },
+                                onCardTap: {
+                                    guard (entry.nativeVariants?.isEmpty == false) else { return }
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        if expandedVariantEntryIDs.contains(entry.id) {
+                                            expandedVariantEntryIDs.remove(entry.id)
+                                        } else {
+                                            expandedVariantEntryIDs.insert(entry.id)
+                                        }
+                                    }
                                 }
                             )
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -437,6 +447,7 @@ private struct DictionaryEntryCard: View {
     var isVariantsExpanded: Bool = false
     var onToggleVariants: () -> Void = {}
     var onPromoteVariant: (DictionaryEntry.NativeVariant) -> Void = { _ in }
+    var onCardTap: (() -> Void)? = nil
 
     private var cardFillColor: Color {
         Color(
@@ -538,20 +549,6 @@ private struct DictionaryEntryCard: View {
 
             if entry.kind == .native, let variants = entry.nativeVariants, !variants.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Button(action: onToggleVariants) {
-                        HStack(spacing: 6) {
-                            Image(systemName: isVariantsExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                            Text("Variants (\(variants.count))")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
                     if isVariantsExpanded {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(variants) { variant in
@@ -596,6 +593,20 @@ private struct DictionaryEntryCard: View {
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
+
+                    Button(action: onToggleVariants) {
+                        HStack(spacing: 6) {
+                            Image(systemName: isVariantsExpanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text("Variants (\(variants.count))")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -626,14 +637,14 @@ private struct DictionaryEntryCard: View {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(Color.blue.opacity(0.05), lineWidth: 1)
                         )
-                        .offset(x: 6, y: 6)
+                        .offset(x: 8, y: 8)
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(cardFillColor)
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(Color.blue.opacity(0.06), lineWidth: 1)
                         )
-                        .offset(x: 3, y: 3)
+                        .offset(x: 4, y: 4)
                 }
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(cardFillColor)
@@ -643,8 +654,13 @@ private struct DictionaryEntryCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.blue.opacity(0.08), lineWidth: 1)
         )
-        .padding(.trailing, hasNativeVariants ? 6 : 0)
-        .padding(.bottom, hasNativeVariants ? 6 : 0)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            guard hasNativeVariants else { return }
+            onCardTap?()
+        }
+        .padding(.trailing, hasNativeVariants ? 8 : 0)
+        .padding(.bottom, hasNativeVariants ? 8 : 0)
     }
 
     @ViewBuilder
