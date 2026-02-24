@@ -45,6 +45,18 @@ struct ChatMessage: Identifiable, Hashable, Codable {
 }
 
 struct DictionaryEntry: Identifiable, Hashable, Codable {
+    struct GrammarCorrectionPair: Hashable, Codable {
+        let wrong: String
+        let right: String
+        let reason: String?
+
+        init(wrong: String, right: String, reason: String? = nil) {
+            self.wrong = wrong
+            self.right = right
+            self.reason = reason
+        }
+    }
+
     let id: UUID
     let kind: EntryKind
     let text: String
@@ -53,6 +65,7 @@ struct DictionaryEntry: Identifiable, Hashable, Codable {
     let nuance: String
     let createdAt: Date
     let categoryIDs: [UUID]
+    let grammarCorrections: [GrammarCorrectionPair]?
 
     enum EntryKind: String, Hashable, Codable {
         case native
@@ -74,7 +87,8 @@ struct DictionaryEntry: Identifiable, Hashable, Codable {
         tone: String,
         nuance: String,
         createdAt: Date = Date(),
-        categoryIDs: [UUID] = []
+        categoryIDs: [UUID] = [],
+        grammarCorrections: [GrammarCorrectionPair]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -84,6 +98,7 @@ struct DictionaryEntry: Identifiable, Hashable, Codable {
         self.nuance = nuance
         self.createdAt = createdAt
         self.categoryIDs = categoryIDs
+        self.grammarCorrections = grammarCorrections
     }
 }
 

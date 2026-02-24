@@ -489,6 +489,25 @@ private struct DictionaryEntryCard: View {
                 }
             }
 
+            if entry.kind == .grammar, let corrections = entry.grammarCorrections, !corrections.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Grammar fixes")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(corrections.prefix(4).enumerated()), id: \.offset) { _, correction in
+                            dictionaryCorrectionRow(correction)
+                        }
+                    }
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
+                }
+            }
+
             Text(entry.text)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -520,6 +539,30 @@ private struct DictionaryEntryCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.blue.opacity(0.08), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func dictionaryCorrectionRow(_ correction: DictionaryEntry.GrammarCorrectionPair) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            (
+                Text(correction.wrong)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.red)
+                + Text(" → ")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.secondary)
+                + Text(correction.right)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.green)
+            )
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let reason = correction.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private static let timestampFormatter: DateFormatter = {

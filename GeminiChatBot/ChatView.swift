@@ -159,10 +159,19 @@ struct ChatView: View {
                     chatStore.createDictionaryCategory(named: name)
                 },
                 onSave: { selectedCategoryIDs in
-                    _ = chatStore.saveGrammarCorrection(request.correctedText, originalText: request.originalText, categoryIDs: selectedCategoryIDs)
+                    _ = chatStore.saveGrammarCorrection(
+                        request.correctedText,
+                        originalText: request.originalText,
+                        categoryIDs: selectedCategoryIDs,
+                        corrections: request.corrections
+                    )
                 },
                 onSaveWithoutCategory: {
-                    _ = chatStore.saveGrammarCorrection(request.correctedText, originalText: request.originalText)
+                    _ = chatStore.saveGrammarCorrection(
+                        request.correctedText,
+                        originalText: request.originalText,
+                        corrections: request.corrections
+                    )
                 }
             )
             .presentationDetents([.medium, .large])
@@ -395,7 +404,11 @@ struct ChatView: View {
                         nativeAlternativesState: nativeAlternativesStates[message.id] ?? .idle,
                         isImprovedExpressionSaved: isImprovedExpressionSaved(for: message),
                         onSaveImprovedExpression: { improvedText in
-                            presentGrammarCorrectionCategoryPicker(correctedText: improvedText, originalText: message.text)
+                            presentGrammarCorrectionCategoryPicker(
+                                correctedText: improvedText,
+                                originalText: message.text,
+                                corrections: grammarCorrectionPairsForMessage(message)
+                            )
                         },
                         onTapNativeAlternatives: {
                             openNativeAlternatives(for: message)
@@ -437,8 +450,16 @@ struct ChatView: View {
         return chatStore.isSavedDictionaryText(improved)
     }
 
-    private func presentGrammarCorrectionCategoryPicker(correctedText: String, originalText: String) {
-        pendingGrammarSaveRequest = PendingGrammarSaveRequest(correctedText: correctedText, originalText: originalText)
+    private func presentGrammarCorrectionCategoryPicker(
+        correctedText: String,
+        originalText: String,
+        corrections: [DictionaryEntry.GrammarCorrectionPair]
+    ) {
+        pendingGrammarSaveRequest = PendingGrammarSaveRequest(
+            correctedText: correctedText,
+            originalText: originalText,
+            corrections: corrections
+        )
     }
 
     private func improvedExpressionForMessage(_ message: ChatMessage) -> String? {
@@ -462,6 +483,43 @@ struct ChatView: View {
         }
 
         return nil
+    }
+
+    private func grammarCorrectionPairsForMessage(_ message: ChatMessage) -> [DictionaryEntry.GrammarCorrectionPair] {
+        guard case let .loaded(data) = feedbackStates[message.id] else { return [] }
+
+        var pairs: [DictionaryEntry.GrammarCorrectionPair] = []
+        var seen = Set<String>()
+
+        for point in data.feedbackPoints {
+            let wrong = point.part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wrong.isEmpty else { continue }
+            guard let replacement = normalizedReplacement(from: point.fix ?? "", part: wrong), !replacement.isEmpty else { continue }
+            guard !isMinorSentenceDifference(wrong, replacement) else { continue }
+            let key = normalizedSentenceKey(wrong) + "->" + normalizedSentenceKey(replacement)
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            let reasonText = point.issue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let reason = (reasonText?.isEmpty == false) ? reasonText : nil
+            pairs.append(.init(wrong: wrong, right: replacement, reason: reason))
+        }
+
+        if pairs.isEmpty {
+            for edit in data.edits {
+                let wrong = edit.wrong.trimmingCharacters(in: .whitespacesAndNewlines)
+                let right = edit.right.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !wrong.isEmpty, !right.isEmpty else { continue }
+                guard !isMinorSentenceDifference(wrong, right) else { continue }
+                let key = normalizedSentenceKey(wrong) + "->" + normalizedSentenceKey(right)
+                if seen.contains(key) { continue }
+                seen.insert(key)
+                let reasonText = edit.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let reason = (reasonText?.isEmpty == false) ? reasonText : nil
+                pairs.append(.init(wrong: wrong, right: right, reason: reason))
+            }
+        }
+
+        return pairs
     }
 
     private func normalizedSentenceKey(_ value: String) -> String {
@@ -1190,6 +1248,14 @@ private struct UserMessageFeedbackCard: View {
             return useQuoted
         }
 
+        if let removeQuoted = firstQuotedPhrase(in: raw, afterPrefix: "remove")
+            ?? firstQuotedPhrase(in: raw, afterPrefix: "delete")
+            ?? firstQuotedPhrase(in: raw, afterPrefix: "omit") {
+            if let removed = removingQuotedPhrase(removeQuoted, from: part) {
+                return removed
+            }
+        }
+
         if raw.count <= 36 {
             return raw
         }
@@ -1203,6 +1269,15 @@ private struct UserMessageFeedbackCard: View {
         guard let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 else { return nil }
         let quoted = (text as NSString).substring(with: match.range(at: 1))
         return quoted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func removingQuotedPhrase(_ quoted: String, from part: String) -> String? {
+        let removed = replacingFirstCaseInsensitive(in: part, target: quoted, replacement: "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+([,?.!])", with: "$1", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !removed.isEmpty else { return nil }
+        return removed
     }
 
     private func replacingFirstCaseInsensitive(in source: String, target: String, replacement: String) -> String {
@@ -1233,6 +1308,7 @@ private struct PendingGrammarSaveRequest: Identifiable {
     let id = UUID()
     let correctedText: String
     let originalText: String
+    let corrections: [DictionaryEntry.GrammarCorrectionPair]
 }
 
 private struct NativeAlternativesSheet: View {
