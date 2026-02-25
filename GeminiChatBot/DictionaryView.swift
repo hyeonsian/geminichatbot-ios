@@ -636,18 +636,15 @@ private struct DictionaryEntryCard: View {
 
     private var expandedVariantsStack: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(variants.enumerated()), id: \.element.id) { index, variant in
+            ForEach(variants) { variant in
                 variantCard(variant)
-                    .padding(.leading, CGFloat(min(index, 3)) * 10)
             }
         }
     }
 
     private func variantCard(_ variant: DictionaryEntry.NativeVariant) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 6) {
-                Text("•")
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 8) {
                 Text(variant.text)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.primary)
@@ -685,7 +682,6 @@ private struct DictionaryEntryCard: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(.leading, 14)
             }
         }
         .padding(10)
