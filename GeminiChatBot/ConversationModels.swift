@@ -138,20 +138,17 @@ struct AIProfileSettings: Hashable, Codable {
         var warmth: Int
         var playfulness: Int
         var directness: Int
-        var curiosity: Int
         var verbosity: Int
 
         init(
             warmth: Int = 4,
             playfulness: Int = 3,
             directness: Int = 3,
-            curiosity: Int = 4,
             verbosity: Int = 2
         ) {
             self.warmth = Self.clamp(warmth)
             self.playfulness = Self.clamp(playfulness)
             self.directness = Self.clamp(directness)
-            self.curiosity = Self.clamp(curiosity)
             self.verbosity = Self.clamp(verbosity)
         }
 

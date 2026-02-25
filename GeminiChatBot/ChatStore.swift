@@ -40,6 +40,7 @@ final class ChatStore: ObservableObject {
     @Published private(set) var conversationMemoryProfileByConversationID: [UUID: ConversationMemoryProfile] = [:]
     @Published private(set) var conversationMemorySyncStatusByConversationID: [UUID: String] = [:]
     private var conversationMemoryHistorySignatureByConversationID: [UUID: String] = [:]
+    private var initialGreetingGenerationConversationIDs: Set<UUID> = []
     @Published var selectedDictionaryCategoryFilter: DictionaryCategoryFilter = .all
 
     init(conversations: [Conversation] = SampleData.conversations, userDefaults: UserDefaults = .standard) {
@@ -55,6 +56,52 @@ final class ChatStore: ObservableObject {
 
     func messages(for conversation: Conversation) -> [ChatMessage] {
         messagesByConversationID[conversation.id] ?? []
+    }
+
+    func ensureInitialGreetingIfNeeded(for conversation: Conversation) {
+        let existingMessages = messagesByConversationID[conversation.id] ?? []
+        guard existingMessages.isEmpty else { return }
+        guard !initialGreetingGenerationConversationIDs.contains(conversation.id) else { return }
+
+        initialGreetingGenerationConversationIDs.insert(conversation.id)
+        let currentAIProfile = aiProfile(for: conversation.id, fallbackName: conversation.name)
+        let currentMemorySummary = conversationMemoryByConversationID[conversation.id] ?? ""
+        let currentMemoryProfile = conversationMemoryProfileByConversationID[conversation.id]
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let reply = try await BackendAPIClient.shared.chatReply(
+                    message: "",
+                    history: [],
+                    memoryProfile: currentMemoryProfile,
+                    memorySummary: currentMemorySummary,
+                    personaProfile: currentAIProfile.personaProfile,
+                    mode: "initial_greeting",
+                    aiName: currentAIProfile.name
+                )
+                await MainActor.run {
+                    defer { self.initialGreetingGenerationConversationIDs.remove(conversation.id) }
+                    let currentMessages = self.messagesByConversationID[conversation.id] ?? []
+                    guard currentMessages.isEmpty else { return }
+                    let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    self.appendMessage(ChatMessage(role: .ai, text: trimmed, timeText: self.currentTimeText()), to: conversation)
+                    self.updateConversationPreview(for: conversation, lastMessage: trimmed, unreadCount: 0)
+                    self.persistState()
+                }
+            } catch {
+                await MainActor.run {
+                    defer { self.initialGreetingGenerationConversationIDs.remove(conversation.id) }
+                    let currentMessages = self.messagesByConversationID[conversation.id] ?? []
+                    guard currentMessages.isEmpty else { return }
+                    let fallback = "Hi. I'm \(currentAIProfile.name). How are you?"
+                    self.appendMessage(ChatMessage(role: .ai, text: fallback, timeText: self.currentTimeText()), to: conversation)
+                    self.updateConversationPreview(for: conversation, lastMessage: fallback, unreadCount: 0)
+                    self.persistState()
+                }
+            }
+        }
     }
 
     func sendUserMessage(_ text: String, in conversation: Conversation) {
@@ -395,6 +442,11 @@ final class ChatStore: ObservableObject {
 
     func clearConversationHistory(for conversationID: UUID) {
         messagesByConversationID[conversationID] = []
+        conversationMemoryByConversationID.removeValue(forKey: conversationID)
+        conversationMemoryProfileByConversationID.removeValue(forKey: conversationID)
+        conversationMemorySyncStatusByConversationID.removeValue(forKey: conversationID)
+        conversationMemoryHistorySignatureByConversationID.removeValue(forKey: conversationID)
+        initialGreetingGenerationConversationIDs.remove(conversationID)
 
         if let index = conversations.firstIndex(where: { $0.id == conversationID }) {
             let current = conversations[index]

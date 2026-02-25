@@ -66,6 +66,7 @@ struct ChatView: View {
                         }
                         .onAppear {
                             chatStore.markConversationOpened(conversation)
+                            chatStore.ensureInitialGreetingIfNeeded(for: conversation)
                             syncSearchSelection()
                             scrollToBottom(proxy)
                         }

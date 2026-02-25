@@ -88,7 +88,7 @@ struct AIProfileEditorView: View {
                 chatStore.clearConversationHistory(for: conversationID)
             }
         } message: {
-            Text("현재 채팅방의 대화 내역만 모두 삭제합니다. 사전에 저장된 항목은 삭제되지 않습니다.")
+            Text("현재 채팅방의 대화 내역과 AI가 기억한 사용자 정보(장기 기억)를 모두 삭제합니다. 사전에 저장된 항목은 삭제되지 않습니다.")
         }
     }
 
@@ -146,7 +146,7 @@ struct AIProfileEditorView: View {
                 .tracking(0.5)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Adjust how the AI talks using 5 tone sliders. Higher values mean stronger expression.")
+                Text("Adjust how the AI talks using 4 tone sliders. Higher values mean stronger expression.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
@@ -168,12 +168,6 @@ struct AIProfileEditorView: View {
                         minLabel: "Soft",
                         maxLabel: "Direct",
                         value: personaBinding(\.directness)
-                    )
-                    personaSliderRow(
-                        title: "Curiosity",
-                        minLabel: "Reserved",
-                        maxLabel: "Curious",
-                        value: personaBinding(\.curiosity)
                     )
                     personaSliderRow(
                         title: "Reply Length",

@@ -88,6 +88,8 @@ private struct ChatRequest: Encodable {
     let memorySummary: String?
     let memoryProfile: ConversationMemoryProfile?
     let personaProfile: AIProfileSettings.PersonaProfile?
+    let mode: String?
+    let aiName: String?
     let model: String?
 }
 
@@ -212,6 +214,8 @@ final class BackendAPIClient {
         memoryProfile: ConversationMemoryProfile? = nil,
         memorySummary: String? = nil,
         personaProfile: AIProfileSettings.PersonaProfile? = nil,
+        mode: String? = nil,
+        aiName: String? = nil,
         model: String? = nil
     ) async throws -> String {
         let normalizedSummary = memorySummary?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -221,6 +225,8 @@ final class BackendAPIClient {
             memorySummary: normalizedSummary?.isEmpty == false ? normalizedSummary : nil,
             memoryProfile: memoryProfile?.isEmpty == false ? memoryProfile : nil,
             personaProfile: personaProfile,
+            mode: mode,
+            aiName: aiName,
             model: model
         )
         let response = try await post(path: "/api/chat", body: req, responseType: ChatResponse.self)
